@@ -1,0 +1,48 @@
+name: build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax check
+        run: node --check bin/disk-clean.js; node --check lib/engine.js; node --check lib/organize.js; node --check lib/clean.js; node --check lib/audit.js
+
+      - name: Smoke test
+        run: node test/engine-smoke.js
+
+      - name: Install pkg
+        run: npm install --save-dev @yao-pkg/pkg
+
+      - name: Build exe
+        run: npx pkg bin\disk-clean.js --targets node22-win-x64 --output dist\disk-clean-win-x64.exe
+
+      - name: Checksums
+        run: |
+          $h = (Get-FileHash -Algorithm SHA256 dist\disk-clean-win-x64.exe).Hash.ToLower()
+          "sha256=$h" | Out-File -Encoding ascii dist\checksums.txt
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: disk-clean-win-x64
+          path: dist/
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/disk-clean-win-x64.exe
+            dist/checksums.txt
+          generate_release_notes: true

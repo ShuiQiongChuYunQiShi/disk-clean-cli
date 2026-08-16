@@ -1,0 +1,8 @@
+node_modules/
+*.exe
+*.log
+.dsk-*
+test/tree/
+reports/
+*.out.json
+.DS_Store

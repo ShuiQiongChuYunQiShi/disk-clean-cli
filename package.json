@@ -1,0 +1,41 @@
+{
+  "name": "disk-clean",
+  "version": "0.1.0",
+  "description": "Windows disk cleanup & analysis CLI — scan, classify, suggest, safely organize (with shortcut fixing) and clean. Zero runtime dependencies.",
+  "license": "MIT",
+  "bin": {
+    "disk-clean": "./bin/disk-clean.js"
+  },
+  "main": "./lib/engine.js",
+  "files": [
+    "bin",
+    "lib",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "start": "node bin/disk-clean.js",
+    "check": "node --check bin/disk-clean.js && node --check lib/engine.js && node --check lib/organize.js && node --check lib/clean.js && node --check lib/audit.js",
+    "smoke": "node test/engine-smoke.js"
+  },
+  "engines": {
+    "node": ">=14.16"
+  },
+  "keywords": [
+    "disk-cleanup",
+    "disk-analyzer",
+    "windows",
+    "cleaner",
+    "duplicates",
+    "organize",
+    "cli"
+  ],
+  "os": [
+    "win32"
+  ],
+  "devDependencies": {
+    "@yao-pkg/pkg": "^6.22.0",
+    "esbuild": "^0.28.2",
+    "postject": "^1.0.0-alpha.6"
+  }
+}
