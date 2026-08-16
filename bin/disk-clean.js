@@ -14,6 +14,7 @@ const organize = require('../lib/organize.js');
 const clean = require('../lib/clean.js');
 const configLib = require('../lib/config.js');
 const scheduleLib = require('../lib/schedule.js');
+const mftLib = require('../lib/mftscan.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -324,6 +325,33 @@ async function cmdAudit() {
   return 0;
 }
 
+// ---------- 命令: mftscan（NTFS $MFT 直读快速扫描，实验功能） ----------
+async function cmdMftScan(o) {
+  const drive = o._[0] || 'D:';
+  const d = /^([a-zA-Z]):/.exec(drive);
+  if (!d) return fail('用法: disk-clean mftscan <盘符>（如 D:；仅 NTFS，需管理员权限）');
+  console.log(col(C.cyan, '▶ MFT 直读扫描: ' + d[1].toUpperCase() + ':'));
+  const t0 = Date.now();
+  const r = mftLib.scan(d[1] + ':');
+  if (!r.ok) return fail(r.error + '（需要管理员权限且为 NTFS 卷）');
+  const s = r.summary;
+  console.log(col(C.green, '✔ 扫描完成  (' + ((Date.now() - t0) / 1000).toFixed(1) + 's)'));
+  console.log('  ' + d[1].toUpperCase() + ':  总大小: ' + fmtBytes(s.totalBytes) + '  文件: ' + s.totalFiles + '  目录: ' + s.totalDirs);
+  console.log('  MFT 记录: ' + s.mftRecords + '（含系统文件 ' + s.sysFiles + '）  扫描时间: ' + s.scannedAt);
+  console.log('');
+  console.log(col(C.cyan, '── 分类 Top 10 ──'));
+  for (const c of (r.category || []).slice(0, 10)) {
+    console.log('  ' + c.label.padEnd(8) + ' ' + fmtBytes(c.bytes).padStart(10) + '  ' + c.count + ' 文件');
+  }
+  console.log('');
+  console.log(col(C.cyan, '── 占用最大目录 Top 15 ──'));
+  for (const t of (r.topDirs || []).slice(0, 15)) {
+    console.log('  ' + fmtBytes(t.bytes).padStart(10) + '  ' + t.path + ' (' + t.files + ' 文件)');
+  }
+  console.log(col(C.gray, '注: MFT 直读为实验功能（需管理员），结果与常规扫描可能存在少量差异。'));
+  return 0;
+}
+
 // ---------- 命令: schedule ----------
 async function cmdSchedule(o) {
   const sub = o._[0] || 'list';
@@ -434,6 +462,7 @@ function help() {
   console.log('  audit                      查看操作审计日志');
   console.log('  config                     查看/设置规则配置 (show|set|reset|path)');
   console.log('  schedule                   定时扫描: add|run|list|remove (仅扫描+报告, 不做清理)');
+  console.log('  mftscan <盘符>             实验: NTFS MFT 直读快速扫描 (需管理员, ~8x 提速)');
   console.log('');
   console.log('通用选项:');
   console.log('  --report <file>  指定报告文件位置');
@@ -465,6 +494,7 @@ async function main() {
       case 'audit': return await cmdAudit();
       case 'config': return await cmdConfig(o);
       case 'schedule': return await cmdSchedule(o);
+      case 'mftscan': return await cmdMftScan(o);
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }
