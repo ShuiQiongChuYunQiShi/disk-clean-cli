@@ -191,6 +191,10 @@ powershell -File scripts\build.ps1   # build exe + sha256
 - Engine: `lib/engine.js` — zero-dependency Node (native `fs`), PowerShell used only for COM shortcut fixing.
 - The CLI is a thin wrapper; the engine is also embedded in the DSH plugin form.
 
+## Reusable process
+
+See [docs/RELEASE-PLAYBOOK.md](docs/RELEASE-PLAYBOOK.md) — the step-by-step SOP for building the DSH plugin + CLI, publishing to GitHub and shipping Release assets (reuse for new projects). Historical retrospective and error catalog: [docs/PROCESS-REVIEW.md](docs/PROCESS-REVIEW.md).
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) — 12 phases: config rules, scheduled scans, MFT fast scan, SMART health, full-disk dedup, per-user quota, restore points, i18n.
