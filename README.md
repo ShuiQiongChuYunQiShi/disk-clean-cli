@@ -10,12 +10,15 @@
 
 | Feature | disk-clean | WizTree | CCleaner | 360/火绒 |
 |---|---|---|---|---|
-| Fast scan (MFT: WIP) | ✅ (v1.1) | ✅ | ❌ | ✅ |
+| Fast scan via raw NTFS MFT (admin) | ✅ **~8x faster** | ✅ | ❌ | ✅ |
 | Move dirs to `整理区` with **rollback** | ✅ | ❌ | ❌ | ❌ |
 | **Rewrite desktop/start-menu shortcuts** after moving program dirs | ✅ (unique) | ❌ | ❌ | ❌ |
 | Duplicate detection (user zones, hash-based) | ✅ | ❌ | ✅ | ✅ |
+| **Full-disk dedup + hardlink merge** | ✅ | ❌ | ❌ | ❌ |
+| **Per-user quota analysis** | ✅ | ✅ | ❌ | ❌ |
+| **SMART / SSD health check** | ✅ | ✅ | ❌ | ❌ |
 | Audit log (JSONL) of every action | ✅ | ❌ | ❌ | ❌ |
-| Readable **Markdown report** | ✅ | ❌ | ❌ | ❌ |
+| Readable **Markdown report (EN/ZH)** | ✅ | ❌ | ❌ | ❌ |
 | Recycle-bin safety (not permanent delete) | ✅ | ❌ | ✅ | ✅ |
 | Open source, no telemetry, no ads | ✅ | ✅ | ❌ | ❌ |
 | AI integration (optional, via DSH) | ✅ (plugin) | ❌ | ❌ | ❌ |
@@ -76,6 +79,28 @@ disk-clean fix-shortcuts pairs.json
 
 # 8. View the audit log
 disk-clean audit
+
+# 9. Fast MFT scan (needs admin, ~8x faster than traversal)
+disk-clean mftscan D:
+
+# 10. Full-disk duplicate detection (excludes system/program dirs)
+disk-clean dedup D:\
+
+# 11. Merge duplicates into hardlinks to free space (rollback-able)
+disk-clean dedup D:\ --hardlink --yes
+disk-clean dedup rollback
+
+# 12. Per-user quota analysis (needs admin)
+disk-clean quota C:
+
+# 13. SMART / SSD health check
+disk-clean health
+
+# 14. Create a system restore point before destructive ops
+disk-clean organize apply --yes --restore-point
+
+# 15. English report
+disk-clean scan D:\ --lang en
 ```
 
 ---
@@ -92,9 +117,14 @@ disk-clean audit
 | `clean <type> [paths...]` | `junk-temp` \| `empty-dirs` \| `duplicates` \| `recycle-bin`. **Dry-run unless `--yes`.** Items go to the recycle bin (recoverable); only recycle-bin emptying is permanent. |
 | `fix-shortcuts <pairs.json>` | Rewrite `.lnk` files pointing at moved paths (Desktop / Start Menu / Taskbar). |
 | `audit` | Show the JSONL audit log. |
-| `config` | *(v1.1)* Rules config: whitelist/blacklist, thresholds, retention. |
-| `schedule` | *(v1.1)* Scheduled scans via Windows Task Scheduler. |
-| `health` | *(v1.1)* SMART / SSD wear check. |
+| `config` | Rules config: whitelist/blacklist, thresholds, retention. |
+| `schedule` | Scheduled scans via Windows Task Scheduler. |
+| `mftscan <drive>` | **Experimental:** raw NTFS MFT scan (needs admin) — ~8x faster than directory traversal; parses fragmented $MFT runlists, rebuilds full paths, sizes via alloc/real rule. |
+| `dedup [roots...]` | Full-disk duplicate detection (excludes system/program dirs; head/tail + full-hash strategy). `--hardlink --yes` merges duplicates into hardlinks; `dedup rollback` restores. |
+| `quota [drive]` | Per-user quota analysis via MFT (needs admin): users ranked + per-user Downloads/Documents/Desktop/... breakdown. |
+| `health` | SMART / SSD health: temperature, wear %, power-on hours, read/write errors with a health grade. |
+| `--restore-point` | Add to `clean` / `organize apply` to create a system restore point first (fails gracefully if protection is off). |
+| `--lang en\|zh` | Report language for `scan` (auto-detected; defaults to system language). |
 
 ---
 
@@ -121,21 +151,29 @@ organize-plan.json     # last plan
 
 ```
 ▶ 正在扫描: D:\
-✔ 扫描完成  (60.4s)
-  根目录   : D:\
-  总大小   : 1.2 TB
-  文件     : 412330  目录: 152201  空目录: 4490
+✔ 扫描完成  (43.1s)
+  总大小   : 630.2 GB   文件: 1381931   目录: 196460
   报告     : C:\Users\Administrator\.disk-clean\report.json
   Markdown : C:\Users\Administrator\.disk-clean\report.md
 
 ── 智能建议 ──
   [organize-folders] 目录整理建议 — 13 项 (164.0 GB)
   [stale-large] 清理长期未使用的大文件 — 14 项 (15.4 GB)
-  [created-old] 创建时间久远的历史目录 — 15 项 (14.7 GB)
   [duplicates] 重复文件 — 46 组 (可释放约 110 MB)
   [recycle-bin] 清空回收站 — 67 MB
-  [junk-temp] 清理临时与缓存文件 — 3 KB
   [empty-dirs] 删除空文件夹 — 4490 项
+
+▶ MFT 直读扫描: D:
+✔ 扫描完成  (5.5s)   ← ~8x faster than traversal
+  D:  总大小: 532 GB  文件: 1362274  目录: 196450
+
+▶ 全盘重复检测: D:\
+✔ 扫描完成  (35.1s)  重复组: 1503  可释放: 17.3 GB
+
+▶ 配额分析: C:
+  administrator   1.1 TB  (74.9%)
+      ├ Desktop  77.8 GB
+      ├ AppData  875 GB
 ```
 
 See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample.
