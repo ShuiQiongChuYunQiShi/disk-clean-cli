@@ -44,7 +44,7 @@ disk-clean scan D:\
 
 ### Option C — DeepSeek Harness plugin (AI-driven)
 
-The same engine also ships as a DSH agent preset (`disk-analyzer`) with natural-language control and a live chart panel. See the [plugin README](../README.md).
+The same engine also ships as a DSH agent preset (`disk-analyzer`) with natural-language control and a live chart panel. See [plugin/README.md](plugin/README.md).
 
 ---
 

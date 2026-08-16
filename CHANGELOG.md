@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **DSH 插件随仓库分发**：新增 `plugin/` 目录——DeepSeek Harness 静态预设（8 工具：
+  scan / clean / audit / organize / health / mftscan / dedup / quota），与 CLI 同源
+  （`plugin/plugins/dsk-lib/` ⇄ `lib/`），`host.static5.js` 的 DSK_DIR 自动推导为
+  preset 根目录，复制到任意主机预设 id 下无需改代码。
+
 ## [0.2.0] - 2026-08-16
 
 ### Added
@@ -16,7 +24,7 @@
 - schtasks 中文输出 GBK 解码；cmd /c 引号包裹；任务入口路径。
 - MFT 记录解析：FILE_NAME 偏移、runlist 符号扩展 32 位溢出、稀疏文件 size 超卷兜底。
 
-## [Unreleased]
+## [0.1.0] - 2026-08-16
 
 ### Added
 - v0.1.0 首个可运行版本：独立 CLI（scan / report / organize / clean / fix-shortcuts / audit）
@@ -25,6 +33,4 @@
   - 垃圾清理：移入回收站（可恢复），默认 dry-run + `--yes` 确认
   - 审计日志 JSONL
   - 报告输出 JSON + Markdown 双格式
-
-## [0.1.0] - 2026-08-16
 （首个发布版）
