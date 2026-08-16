@@ -136,3 +136,63 @@
 ## 六、一句话总结
 
 **"把工具做成能交给陌生人的东西，考验的不是功能，而是编码一致性、安全默认和可复现的构建。"** 最大的三类坑是：Windows 编码（GBK/UTF-8/BOM/pwsh7）、NTFS 元数据解析（碎片/稀疏/异常字段）、发布链路（认证/CI 可移植性）——前两类靠"铁律 + 对比验证"解决，最后一类靠"本地闭环 + 真实 CI 验证"解决。
+
+---
+
+## 七、GUI 桌面端复盘（v0.3.0，2026-08-16）
+
+> 第三形态：WebView2 原生窗口（C# 壳 + 引擎 serve 层 + 零依赖前端 + Inno Setup 安装器）。
+> 完整 SOP 见 `docs/RELEASE-PLAYBOOK.md §3.5`；本节约不复述流程，只记**经验/教训/防复发**。
+
+### 7.1 决策与架构（好的点）
+
+| # | 决策 | 为什么好 |
+|---|---|---|
+| G1 | 壳零业务逻辑（C# 只做提权+拉起+托管 WebView2） | 8 工具全部走 `lib/serve.js` HTTP 层，引擎只写一处，GUI 永远同源 |
+| G2 | `TcpListener(IPAddress.Loopback, 0)` 找空闲端口 + Guid token | 无端口冲突、无外部暴露；仅绑 127.0.0.1 + Bearer 鉴权 |
+| G3 | 扫描子进程 `--internal-scan` + `--progress` 文件轮询 | 复用 CLI 既有机制，长任务不阻塞服务线程 |
+| G4 | 前端零依赖（手写 HTML/CSS/JS）| 无 npm 构建、无 node_modules；引擎 SEA 免打包前端；体积小 |
+| G5 | 框架依赖 + 缺则引导官方 bootstrapper | 壳自包含会 +60MB；引导下载把运行时决策交给用户 |
+| G6 | 破坏性操作后端默认 dryRun + 前端「预览→确认」双确认 | 安全默认贯穿三层 |
+| G7 | clean 空路径自动提取候选（与 CLI 同逻辑）| GUI 一键清理 UX 好，且"宁拒勿删"（提取不到即 400） |
+| G8 | 验证链：API 冒烟 → Edge headless 渲染 → 静默安装 → GitHub 下载校验 | 每一层都有可复现验收，发布前已经模拟过真实用户路径 |
+
+### 7.2 GUI 犯错清单（含修复，全部已闭环）
+
+| # | 错误 | 根因 | 修复 |
+|---|---|---|---|
+| G9 | CS8632 编译错 | Nullable disable 下写了 `?` 注解 | 去掉 `?`，`GetArg` 返回 `string.Empty` |
+| G10 | 引擎路径空 → FATAL engine missing | `??` 对空串无效 | `IsNullOrEmpty` 判断（空串 ≠ null） |
+| G11 | 引擎打印 help 即退 | spawn 传了 `--serve`（flag）而非 `serve`（位置参数） | `Arguments = "serve --port ..."` |
+| G12 | 编辑 Program.cs 漏 `}` → CS1513 | 手改大文件 | 编译前 `dotnet build` 快速失败（不攒到最后 publish） |
+| G13 | MSB3277 WindowsBase 警告 | WebView2 包含 WPF/WinForms 双程序集 + UseWindowsForms | TFM 提到 `net8.0-windows10.0.17763.0` 后 CS8632 消失；MSB3277 无害接受 |
+| G14 | 引擎 stdout 中文乱码 | PowerShell `Get-Content` 按 GBK 读 UTF-8 日志 | 读取加 `-Encoding UTF8`；C# 加 `StandardOutputEncoding=UTF8` |
+| G15 | 旧 SEA 引擎无 serve | 改 serve.js 后没重建 dist exe 就复制 | 重打包链固化进 build-installer.ps1（先引擎后壳） |
+| G16 | pwsh 未传 workdir 落错目录 | 工具默认 cwd 非仓库 | Copy-Item 等一律用绝对路径参数 |
+| G17 | PS 5.1 `New-Object ProcessStartInfo` 无 ArgumentList | pwsh7 特性 | 用 `Arguments` 字符串，路径加 `\"` |
+| G18 | 发布断言误读 | dotnet publish 实际成功（PDB/XML 已出）| 以产物文件存在为准，不轻信中间断言 |
+| G19 | clean 空路径 400 | validate 对非 recycle-bin 要求 paths 非空 | serve 层 `extractCleanPaths` 从报告自动提取 |
+| G20 | .NET 检测误判（提示未装，实际已装 8.0.30） | 注册表布局因安装器而异 | 文件夹探测 `DirExists + FindFirst('8.0.*')` |
+| G21 | DownloadTemporaryFile 编译错 | 误以为 3 参 Boolean | 实签 4 参 `(Url, BaseName, RequiredSHA256OfFile, OnDownloadProgress): Int64`（失败 -1） |
+| G22 | 下载路径前缀重复（`{tmp}\{tmp}\`）| BaseName 传了全路径 | BaseName 只传裸文件名（自动落 {tmp}） |
+| G23 | PascalScript 编译错 | 函数定义在调用之后（无前向引用） | 先声明 DownloadAndRun 再 InitializeSetup |
+| G24 | 中文向导语言缺失 | 官方安装包不带 ChineseSimplified.isl | 向导英文，程序 UI 双语不受影响 |
+| G25 | Edge headless 空输出 | 旧 `--headless` 模式 | `--headless=new` + 独立 `--user-data-dir` |
+| G26 | E2E 端口取错 | 复用了上一轮日志（未清）| 每次测试前 `Remove-Item $env:TEMP\disk-clean-ui.log` |
+| G27 | gui/stage 被误提交 | 忘记加 .gitignore | `git rm --cached` + 补 `gui/stage/` |
+| G28 | 引擎重建后 SHA256SUMS 仍是旧值 | dist 文件与校验集不同步 | 构建后重算；发布前本地 sha × 资产 digest 双向核对 |
+| G29 | gh shell 输出无法 JSON 解析 | PS 5.1 把 stderr 混入 stdout（NativeCommandError 噪音）| 复杂 JSON 用 Invoke-RestMethod API 验证 |
+| G30 | `gh release delete` 静默失败 | exit 0 但未删 | API `DELETE /releases/{id}` 兜底（204） |
+| G31 | PS 5.1 三元运算符解析错 | `? :` 是 pwsh7 语法 | if/else |
+| G32 | E2E 后遗留进程/目录 | 测试进程未收尾 | Start-Process 记录 PID → 结束 → 删测试目录 |
+| G33 | `Copy-Item -Recurse -Force` 到已存在目录变成**嵌套复制** | Copy-Item 目录语义：目标已存在时并入子目录 | 文件级复制（`Copy-Item src\SKILL.md dst\SKILL.md -Force`）；或先删目标目录再复制 |
+
+### 7.3 防复发要点（GUI 专项）
+
+1. **服务层第一坑**：CLI 位置参数 vs flag —— spawn 前确认参数语义（`serve` 不是 `--serve`）。
+2. **版本四源**：`bin/VER`、`lib/serve.js VER`、`DiskCleanUi.csproj Version`、`package.json version`
+   ——发布前 grep 核对，`checksums.txt version=` 来源于 package.json。
+3. **构建顺序**：改 serve.js → 必重建 SEA → 再组装安装器；上传期间不重建源文件。
+4. **C#**：Nullable disable 无 `?`、GetArg 空串、ProcessStartInfo 用 Arguments、改后立即 build。
+5. **Inno Setup**：函数先声明、DownloadTemporaryFile 4 参裸名、FindFirst 用 TFindRec、检测用文件夹。
+6. **验证**：headless 必须 `--headless=new`；E2E 前清日志；发布判据 = GitHub 下载→sha→安装→启动→健康。

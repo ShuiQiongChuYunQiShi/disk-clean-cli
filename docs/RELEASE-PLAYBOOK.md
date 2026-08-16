@@ -1,7 +1,7 @@
 # disk-clean 制作与发布 SOP —— 可复用 Playbook
 
 > 本文是**操作手册**（照着做就行），与 `PROCESS-REVIEW.md`（复盘：学了什么）互补。
-> 适用范围：在 DeepSeek Harness（DSH）上制作 Windows 磁盘工具——双形态交付（DSH 插件 + 独立 CLI），
+> 适用范围：在 DeepSeek Harness（DSH）上制作 Windows 磁盘工具——三形态交付（DSH 插件 + 独立 CLI + GUI 桌面端），
 > 上传 GitHub，打包 Release。新项目可直接复用本流程。
 
 ---
@@ -13,14 +13,24 @@
    ├─► DSH 插件（对话式 AI）：plugin/plugins/dsk-adv.js + dsk-lib/（= CLI lib 副本）
    │     静态 presethost.static5.js（会话挂载即用，免审批）
    │     动态模板 host.js（__DSK_DIR__ 占位，cordis_define 安装，带可视化面板）
-   └─► 独立 CLI（Node / SEA 单文件 exe）：bin/ + lib/ + scripts/build-sea.ps1
+   ├─► 独立 CLI（Node / SEA 单文件 exe）：bin/ + lib/ + scripts/build-sea.ps1
+   └─► GUI 桌面端（WebView2 原生窗口）：gui/ + lib/serve.js（界面前端 + HTTP 服务层）
+            ├─ C# 壳（WinForms+WebView2，.NET 8 框架依赖单 exe ~24MB，UAC 提权）
+            │    spawn engine.exe serve --port <p> --token <t> --web <dir>
+            ├─ lib/serve.js：8 工具 REST 化（仅绑 127.0.0.1 + Bearer 鉴权）
+            └─ gui/web/：零依赖暗色仪表盘（主页极简 + 高级 8 Tab，双语）
+                    │
+                    ▼
+   Inno Setup 安装器（检测 .NET 8 Desktop Runtime / WebView2，缺则引导官方 bootstrapper）
             │
             ▼
-   GitHub 仓库（同一仓库承载两侧）→ Release 资产（exe + SHA256SUMS）→ CI 回归
+   GitHub 仓库（同一仓库承载三侧）→ Release 资产（setup exe + 引擎 exe + SHA256SUMS）→ CI 回归
 ```
 
-- **同源铁律**：引擎只写一处；插件 `dsk-lib/` 与 CLI `lib/` 互为副本，改动必须**双向同步**。
-- **两条分发线共享同一仓库**：CLI 是第一入口（Release 资产），插件放 `plugin/` 目录随仓库分发。
+- **同源铁律**：引擎只写一处；插件 `dsk-lib/` 与 CLI `lib/` 互为副本，改动必须**双向同步**；
+  GUI 的 `lib/serve.js` 只包装引擎（零重写），引擎改动 GUI 自动受益。
+- **三条分发线共享同一仓库**：CLI 是第一入口（Release 资产），插件放 `plugin/` 目录，
+  GUI 放 `gui/` + `installer/` 随仓库分发。
 
 ---
 
@@ -29,13 +39,15 @@
 ```
 <repo>/
 ├── bin/            # CLI 入口（disk-clean.js，含 VER 版本常量）
-├── lib/            # CLI 引擎（engine.js / health.js / mftscan.js / dedup.js / quota.js …）
+├── lib/            # CLI 引擎（engine.js / health.js / mftscan.js / dedup.js / quota.js / serve.js…）
 ├── scripts/        # build-sea.ps1（**全 ASCII**，SEA 打包）
 ├── test/           # CI smoke test（**仓库内相对路径，禁止本机绝对路径**）
-├── docs/           # RELEASE-PLAYBOOK.md / PROCESS-REVIEW.md / RELEASE_NOTES-*.md
+├── docs/           # RELEASE-PLAYBOOK.md / PROCESS-REVIEW.md / GUI-PLAN.md / RELEASE_NOTES-*.md
+├── gui/            # GUI 桌面端：shell/（C# 壳）+ web/（前端）+ stage|publish|dist（构建产物）
+├── installer/      # Inno Setup 安装器脚本（disk-clean-ui.iss）
 ├── plugin/         # DSH 插件分发目录（见 §2）
 ├── .github/workflows/
-├── README.md       # Option A 单文件 exe / Option B npm / Option C DSH 插件（链接指向 plugin/README.md）
+├── README.md       # Option A 单文件 exe / Option B npm / Option C DSH 插件 / Option D GUI（链接各文档）
 ├── CHANGELOG.md
 └── package.json / sea-config.json / LICENSE / ROADMAP.md
 ```
@@ -135,6 +147,92 @@
 
 ---
 
+## 3.5 GUI 桌面端制作 SOP（WebView2 原生窗口）
+
+### 3.5.1 架构（三进程模型）
+
+```
+disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB）
+  ├─ app.manifest requireAdministrator（UAC 提权，磁盘分析必需）
+  ├─ TcpListener(IPAddress.Loopback, 0) → 找空闲端口 + Guid 生成 token
+  ├─ spawn engine.exe serve --port <p> --token <t> --web <dir>
+  │    （CreateNoWindow + 隐藏窗口 + 重定向 stdout/stderr UTF-8）
+  ├─ 轮询 GET /api/health（30s 超时 / 300ms 间隔）确认引擎就绪
+  └─ WebView2 窗口加载 http://127.0.0.1:<port>/（窗口关闭 → KillEngine 整进程树）
+```
+
+- **壳零业务逻辑**：C# 只做「提权 + 拉起引擎 + 托管 WebView2」三件事，8 个工具全部
+  复用 CLI 引擎 `lib/serve.js` HTTP 层 —— GUI 永远与服务层/CLI 同源。
+- **WebView2 环境**：`CoreWebView2Environment.CreateAsync(userDataFolder=%LOCALAPPDATA%\disk-clean\webview2)`
+  → `EnsureCoreWebView2Async` → `AddScriptToExecuteOnDocumentCreatedAsync` 注入
+  `window.__DSK_TOKEN__` 与 `window.__DSK_URL__` → `Navigate`。异常弹 MessageBox 并 Close。
+- **前端 token**：`window.__DSK_TOKEN__ || new URLSearchParams(location.search).get('token')`——
+  兜底 URL query 便于 headless 测试与手工调试，不破坏 C# 注入主路径。
+
+### 3.5.2 服务层（lib/serve.js）铁律
+
+- **只绑 127.0.0.1**；除 `/api/health` 外全部要求 `Authorization: Bearer <token>`。
+- **CLI 命令是位置参数不是 flag**：spawn 传 `serve`（位置）而非 `--serve`（flag 会被
+  parseOpts 当布尔 → cmd=undefined → 打印 help 退 0）。这是本模块最高频坑。
+- 扫描任务：spawn 子进程 `--internal-scan`（SEA 自调用 `['--internal-scan']`，node 环境
+  `[process.argv[1], '--internal-scan']`）+ `--progress <tmpfile>` 轮询；
+  report 落 `audit.reportFile()`。
+- **clean 空路径自动提取**：GUI 一键清理传 `paths: []` 时，从最近报告自动提取候选
+  （`extractCleanPaths`：duplicates←建议 removable / empty-dirs←emptyDirSample /
+  junk-temp←temp 段过滤），与 CLI 提取逻辑一致；提取不到则安全拒绝（宁拒勿删）。
+- 静态托管：`STATIC_EXT` 白名单 + `path.resolve` 前缀校验防目录穿越。
+- 常驻：`cmdServe` 返回 `new Promise(function(){})`；SIGTERM/SIGINT shutdown 杀全部 job 子进程。
+
+### 3.5.3 前端（gui/web/，零依赖）
+
+- 手写 HTML/CSS/JS（**零 npm 运行时、零构建**——引擎 SEA 无需打包前端，体积小、无供应链风险）。
+- 两级 UI：主页（选盘/扫描进度/统计卡/类别条形图/建议卡+一键清理）+
+  高级 8 Tab（organize/health/dedup/quota/mft/schedule/config/audit）。
+- 双语 i18n：`data-i18n` 属性 + `localStorage` 切换（zh 默认 / en）；SVG-free（CSS bar 图）。
+- 清理/整理一律「预览 → 确认弹窗 → 执行」双确认；毁伤操作接口后端默认 dryRun。
+
+### 3.5.4 安装器（installer/disk-clean-ui.iss + scripts/build-installer.ps1）
+
+构建链（**顺序铁律**：先引擎后壳，改 serve 后必须先重建 SEA）：
+
+```
+scripts/build-installer.ps1
+  1) dotnet publish gui/shell/DiskCleanUi.csproj -c Release -r win-x64 --self-contained false \
+     -p:PublishSingleFile=true -o gui\stage
+  2) scripts/build-sea.ps1（esbuild bundle + SEA blob + postject；产物 dist\disk-clean-win-x64.exe）
+  3) Copy dist exe → gui\stage\engine.exe + Copy gui\web\* → gui\stage\web\
+  4) ISCC installer\disk-clean-ui.iss → gui\dist\disk-clean-setup-<ver>.exe（LZMA2 压缩）
+  5) sha256 写入 .sha256
+```
+
+- **框架依赖 + 缺则引导**（体积优先，不自包含）：.iss `[Code]` 检测 .NET 8 Desktop Runtime
+  与 WebView2，缺失时弹窗 → `DownloadTemporaryFile` 拉官方 bootstrapper → 静默安装。
+- **运行时检测用文件夹探测**（`DirExists` + `FindFirst('...\8.0.*')`）比注册表可靠
+  （注册表布局因安装器而异，实测误判）。WebView2 用注册表探测。
+- **Inno Setup PascalScript 铁律**：
+  - 函数**必须先声明后使用**（无前向引用，DownloadAndRun 定义放在 InitializeSetup 之前）。
+  - `DownloadTemporaryFile` 实际签名 4 参：`(Url, BaseName, RequiredSHA256OfFile, OnDownloadProgress): Int64`，
+    失败返回 -1；**BaseName 只传裸文件名**（自动落到 `{tmp}`），传全路径会前缀重复。
+  - `FindFirst`/`FindClose` 用 `TFindRec` 结构体，不是 String。
+  - 中文向导语言文件（ChineseSimplified.isl）官方安装包不带——向导用英文，程序 UI 双语不受影响。
+- 安装产物校验：静默安装 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<测试目录> /NOCANCEL`
+  → EXIT=0 且 `disk-clean-ui.exe + engine.exe + web\ + unins000.exe` 就位 → 从安装目录启动 GUI
+  → 引擎 health OK / index 200。
+
+### 3.5.5 GUI 验证清单（验收点）
+
+- [ ] 原生窗口标题正确、无黑框（WebView2 先于窗口显示）
+- [ ] 无 token 请求 401；带 token drives/scan/organize/… 全部 200
+- [ ] 扫描 → 进度轮询 → report 完整返回；clean 空路径自动提取
+- [ ] **Edge headless 渲染**：`msedge.exe --headless=new --disable-gpu --user-data-dir=<临时> --dump-dom --virtual-time-budget=8000 "http://127.0.0.1:<port>/?token=<t>"`
+      → 检查 nav-item / drive-card / 无 `Uncaught|ReferenceError|TypeError`
+      （旧 `--headless` 模式可能空输出，必须 `--headless=new` + 独立 profile）
+- [ ] 安装器静默安装 EXIT=0 → 启动即用（引擎 spawn 日志出现 serve 行）
+- [ ] **从 GitHub 下载 → Get-FileHash 与本地一致 → 静默安装 → 启动 → 健康 0.3.0 → 页面 200**
+      （完整用户路径才是发布成功的判据）
+
+---
+
 ## 4. GitHub 发布 SOP
 
 ### 4.1 认证（坑多，照做）
@@ -152,13 +250,21 @@
 ### 4.3 Release 资产
 
 ```
-disk-clean-win-x64.exe   （~82MB，gh release create 上传超时 → 后台任务跑）
-SHA256SUMS.txt
-checksums.txt            （version=<版本> 行）
+disk-clean-setup-<ver>.exe   （GUI 安装器 ~26MB，LZMA2 压缩；gh release create 上传超时 → 后台任务跑）
+disk-clean-setup-<ver>.exe.sha256
+disk-clean-win-x64.exe   （CLI/引擎 SEA，~82MB，同上后台上传）
+disk-clean-win-x64.exe.sha256
+SHA256SUMS.txt          （含引擎 + 安装器两项校验和）
+checksums.txt           （version=<版本> 行，构建产物）
 ```
 
-- 产物哈希核对：`Get-FileHash`，与 Release 资产 updatedAt 后的哈希一致才算发布成功。
+- **发布前产物核对铁律**：`Get-FileHash` 与 Release 资产 digest 一致才算发布成功；
+  `dist/` 被 .gitignore 忽略，SHA256SUMS 只作 Release 资产不入库，**每次构建后必须重算**。
+- 上传一律后台任务 + `--clobber` 覆盖；**上传期间不要重建源文件**（会破坏半传文件），
+  需重传先 kill 上传 job 再重建再传。
 - Release 必须**非 draft**；CI workflow 手动验证（`gh workflow run` 在 CI 修复后重新触发，不删 tag 重推）。
+- 遗留 draft 删除：`gh release delete` 偶发静默失败（exit 0 未删）——用 API
+  `DELETE /repos/{owner}/{repo}/releases/{id}` 兜底（返回 204）。
 
 ### 4.4 CI 铁律
 
@@ -168,9 +274,11 @@ checksums.txt            （version=<版本> 行）
 ### 4.5 发布检查清单
 
 - [ ] `git status` 干净、`git log` 与 `ls-remote origin master` 一致
-- [ ] Release 非 draft、资产哈希与本地一致
+- [ ] Release 非 draft、资产哈希与本地一致（含 GUI setup 与引擎两处 sha）
 - [ ] CI 最新 run 成功
-- [ ] README（Option A/B/C 链接）+ CHANGELOG + ROADMAP 无坏链接
+- [ ] README（Option A/B/C/D 链接）+ CHANGELOG + ROADMAP 无坏链接
+- [ ] 版本三处一致：`bin/VER`、`lib/serve.js VER`、`package.json version`（GUI 壳
+      `DiskCleanUi.csproj Version` 与引擎版本同号）——发布前 grep 核对，防版本漂移
 
 ---
 
@@ -192,19 +300,38 @@ checksums.txt            （version=<版本> 行）
    - 稀疏/异常 size 兜底：`alloc ≤ real×2+4MB 用 alloc 否则 real`；size 超卷容量归 0。
    - 字段偏移以实测定准（DATA real@+48、FILE_NAME name@+66 等），改动后对照普通遍历验证（§3 PROCESS-REVIEW #5）。
 
+### GUI/C#/安装器（v0.3.0 增补）
+
+6. C# 项目（`gui/shell/`）Nullable disable 下**不要写 `?` 注解**（CS8632）；
+   `GetArg` 返回 `string.Empty` 而非 null，判断用 `IsNullOrEmpty`（`??` 对空串无效）。
+7. 引擎 stdout/stderr 重定向必须 `StandardOutputEncoding = UTF8`；日志文件 UTF-8，
+   PowerShell 读取**必须 `-Encoding UTF8`**（默认按 GBK 读中文乱码，曾误判为引擎输出问题）。
+8. **PowerShell 5.1 `New-Object ProcessStartInfo` 无 `ArgumentList`**（pwsh7 才有）——用
+   `Arguments` 字符串，含空格路径加 `\"` 包裹；C# `ProcessStartInfo.ArgumentList` 只在 .NET 运行时可用。
+9. 安装器 PascalScript：函数先声明；`DownloadTemporaryFile` 4 参 Int64（-1=失败）；
+   `BaseName` 裸文件名；`FindFirst` 用 `TFindRec`；缺 ChineseSimplified.isl 用英文向导。
+10. GUI 构建产物（`gui/stage/` `gui/publish/` `gui/dist/`）全部 .gitignore，勿提交；
+    安装器版本行（checksums.txt `version=`）来源是 `package.json`——bump 时同步，防标签漂移。
+11. PS 5.1 **无三元运算符 `? :`**（解析错误）——用 if/else。gh/PSScript 输出解析
+    PowerShell 5.1 会把 stderr 混进 stdout（NativeCommandError 噪音）——用 `Out-String`
+    或重定向到文件再解析，复杂 JSON 直接用 Invoke-RestMethod API 层验证。
+
 ---
 
 ## 6. 新会话复用指南（回答"新开会话还能不能用"）
 
 **对话记忆不会带到新会话，但流程载体可以——用以下任一方式让新会话复用：**
 
-1. **DSH 技能（推荐）**：本 preset 携带 `skills/release-sop/SKILL.md`，新会话的技能目录会自动出现
-   「release-sop」；对模型说“按 release-sop 流程做 XXX”，即加载本手册的精简操作版。
+1. **DSH 技能（推荐）**：本 preset 携带 `skills/release-sop/SKILL.md`（发布流程）与
+   `skills/gui-development/SKILL.md`（GUI 桌面端专项，v0.3.0 新增），新会话的技能目录会自动出现；
+   对模型说“按 release-sop 流程做 XXX”或“按 gui-development 做 GUI”，即加载对应速查。
 2. **仓库文档**：直接要求模型读 `docs/RELEASE-PLAYBOOK.md`（本文件）+ `docs/PROCESS-REVIEW.md`
-   （错误清单），命令示例：
+   （错误清单）+ `docs/GUI-PLAN.md`（GUI 设计），命令示例：
    ```
    读取 D:\deepseekHerness\disk-clean-cli\docs\RELEASE-PLAYBOOK.md 和 PROCESS-REVIEW.md，
    按 §2 插件 SOP 把新功能 XXX 加入磁盘分析器插件并走 §4 发布流程。
+   读取 D:\deepseekHerness\disk-clean-cli\docs\GUI-PLAN.md 与工具 skills/gui-development，
+   按 §3.5 GUI SOP 修改前端/安装器。
    ```
 3. **技能 = 指针，手册 = 权威**：SKILL.md 只放速查与定位（“读哪些文件、按哪几节做”），
    完整内容始终以仓库 docs/ 为准，避免两份文档漂移。
