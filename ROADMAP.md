@@ -296,6 +296,7 @@ Commands:
 | Phase 9 | 2026-08-16 | 每用户配额：`quota [盘符]`（MFT 目录聚合按 C:\Users\* 分组 + Downloads/Documents/Desktop 等子目录明细）；C 盘实测 administrator 1.1TB/74.9%（AppData 875GB/Desktop 77.8GB）；修复稀疏 journal 文件 size 超卷兜底 |
 | Phase 10 | 2026-08-16 | 系统还原点：organize apply / clean 支持 `--restore-point`（Checkpoint-Computer，.ps1 文件模式）；本机系统保护已开启（1 个还原点），创建受 Windows 24h 频率限制时明确提示且不中断（验收通过）；失败降级写日志 |
 | Phase 11 | 2026-08-16 | i18n 多语言：lib/i18n.js（en/zh 字典 + 自动检测：--lang > DSH_LANG/LANG > 系统语言）；scan Markdown 报告标题/表格双语（# Disk Scan Report / ## Summary 等），`--lang en|zh` 实测通过 |
+| Phase 12 | 2026-08-16 | 最终验证 + 发布准备：v0.2.0 版本 bump、README/CHANGELOG/RELEASE_NOTES-v0.2.0.md 更新、SHA256SUMS、git tag v0.2.0；全命令 exe 回归通过（scan/organize/clean/mftscan/health/dedup/quota/schedule/config/audit）；修复 pwsh GBK 重写导致的乱码+BOM；GitHub 发布待用户认证（gh CLI 安装中） |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |
 | Phase 7 | ⬜ | — |
