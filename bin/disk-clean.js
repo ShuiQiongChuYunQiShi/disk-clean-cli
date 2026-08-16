@@ -36,7 +36,7 @@ if (process.argv[2] === '--internal-scan') {
 }
 
 const BS = '\\';
-const VER = '0.2.0';
+const VER = '0.3.0';
 
 // SEA（单文件 exe）检测：node 环境 spawn 需带脚本路径，SEA 环境直接自我调用
 let IS_SEA = false;
@@ -603,6 +603,8 @@ function help() {
   console.log('      --hardlink             可选: 重复文件转硬链接省空间 (需 --yes, 可回滚)');
   console.log('  dedup rollback             回滚硬链接合并');
   console.log('  quota [盘符]               每用户配额分析 (MFT 直读, 需管理员)');
+  console.log('  serve --port <p> --token <t> --web <dir>   GUI 引擎 HTTP 服务');
+  console.log('                              (仅绑定 127.0.0.1, Bearer 鉴权, 常驻)');
   console.log('  clean / organize apply --restore-point   执行前先建系统还原点 (失败不中断)');
   console.log('');
   console.log('通用选项:');
