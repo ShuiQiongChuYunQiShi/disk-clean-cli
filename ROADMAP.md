@@ -142,13 +142,15 @@ Commands:
 
 ## 7. Phase 5 — 定时任务（优化⑤）
 
-- `disk-clean schedule add --every weekly --day sun --time 03:00 --command "scan C:\ D:\ --report"`。
-- 实现：schtasks 注册（或 Windows 任务计划程序 XML）。
-- 报告自动归档到 `~/.disk-clean/reports/`。
-- `disk-clean schedule list|remove`。
-- 安全：定时任务默认只做 scan/报告，不做破坏性操作（或要求显式 `--clean` 标记）。
+- ✅ `disk-clean schedule add <name> --when once|daily|weekly --time HH:MM --roots "C:\;D:\" [--day SUN] [--config <file>]`
+- ✅ schtasks 注册（`disk-clean-<name>`），任务触发 `cmd /c ""<exe>" "<entry>" schedule run <name>"`（整体引号包裹，符合 cmd /c 剥离规则）
+- ✅ `schedule run <name>`：读任务配置 → scan → 报告归档到 `~/.disk-clean/reports/<ts>-<name>.json/.md`
+- ✅ `schedule list`（schtasks CSV 解析 + GBK/UTF-8 自动解码，状态"就绪"）+ `schedule remove`
+- ✅ 安全：schedule run 仅扫描+报告，拒绝破坏性操作（`--clean` 直接报错）
 
-**验收**：注册任务后运行一次，报告生成在归档目录；list/remove 正常。
+**验收（2026-08-16 实测）**：
+- ✅ node 环境 + SEA exe 双环境：add → `schtasks /run` 触发 → Last Result 0 → 报告归档生成。
+- ✅ 修复 3 个 bug：`__filename` 指向 lib 而非 bin；cmd /c 引号剥离导致任务 exit 1；schtasks GBK 输出解码。
 
 ---
 
@@ -267,6 +269,7 @@ Commands:
 | Phase 2 | 2026-08-16 | SEA 单文件 exe（82MB，零外部二进制）；无 Node 环境验证通过；demo 素材 + build-sea.ps1 |
 | Phase 3 | 2026-08-16 | 英文 README + MIT + CI(SEA) + CONTRIBUTING + issues 模板 + git 首次提交；zh-CN README 待补 |
 | Phase 4 | 2026-08-16 | 规则配置文件 config.json：阈值覆盖 + exclude 白名单 + `config` 子命令(show/set/reset/path)；阈值生效对照验证通过 |
+| Phase 5 | 2026-08-16 | 定时任务 schedule：add/run/list/remove + schtasks 注册 + 报告归档；node 与 SEA exe 双环境端到端触发验证通过 |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |
 | Phase 7 | ⬜ | — |

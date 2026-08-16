@@ -13,6 +13,7 @@ const audit = require('../lib/audit.js');
 const organize = require('../lib/organize.js');
 const clean = require('../lib/clean.js');
 const configLib = require('../lib/config.js');
+const scheduleLib = require('../lib/schedule.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -323,6 +324,56 @@ async function cmdAudit() {
   return 0;
 }
 
+// ---------- 命令: schedule ----------
+async function cmdSchedule(o) {
+  const sub = o._[0] || 'list';
+  if (sub === 'add') {
+    const name = o._[1];
+    if (!name) return fail('用法: disk-clean schedule add <name> --when once|daily|weekly --time HH:MM --roots "C:\\;D:\\" [--day SUN] [--config <file>]');
+    const roots = (o.values.roots || '').split(';').filter(Boolean);
+    const r = scheduleLib.add({
+      name: name, when: o.values.when, day: o.values.day, time: o.values.time,
+      roots: roots, config: o.values.config
+    }, IS_SEA);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, '✔ ' + r.note));
+    return 0;
+  }
+  if (sub === 'run') {
+    const name = o._[1];
+    if (!name) return fail('用法: disk-clean schedule run <name>');
+    console.log(col(C.cyan, '▶ 定时扫描: ' + name));
+    const r = await scheduleLib.run(name, run);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, '✔ 扫描完成'));
+    if (r.summary) {
+      console.log('  总大小: ' + fmtBytes(r.summary.totalBytes) + '  文件: ' + (r.summary.totalFiles || 0) + '  目录: ' + (r.summary.totalDirs || 0));
+    }
+    console.log('  报告  : ' + r.reportFile);
+    console.log('  Markdown: ' + r.mdFile);
+    return 0;
+  }
+  if (sub === 'list') {
+    const items = scheduleLib.list();
+    if (items.length === 0) { console.log('（暂无定时任务）'); return 0; }
+    console.log(col(C.cyan, '── 定时任务 ──'));
+    for (const it of items) {
+      console.log('  ' + it.name + '  ' + it.when + (it.day ? ' ' + it.day : '') + ' ' + it.time + '  状态: ' + it.status + (it.nextRun && it.nextRun !== 'N/A' ? '  下次: ' + it.nextRun : ''));
+      console.log('    扫描: ' + it.roots.join(', '));
+    }
+    return 0;
+  }
+  if (sub === 'remove') {
+    const name = o._[1];
+    if (!name) return fail('用法: disk-clean schedule remove <name>');
+    const r = scheduleLib.remove(name, IS_SEA);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, '✔ ' + r.note));
+    return 0;
+  }
+  return fail('schedule 子命令: add | run | list | remove');
+}
+
 // ---------- 命令: config ----------
 async function cmdConfig(o) {
   const sub = o._[0] || 'show';
@@ -382,6 +433,7 @@ function help() {
   console.log('                              (默认预览, --yes 执行; 移入回收站可恢复)');
   console.log('  audit                      查看操作审计日志');
   console.log('  config                     查看/设置规则配置 (show|set|reset|path)');
+  console.log('  schedule                   定时扫描: add|run|list|remove (仅扫描+报告, 不做清理)');
   console.log('');
   console.log('通用选项:');
   console.log('  --report <file>  指定报告文件位置');
@@ -412,6 +464,7 @@ async function main() {
       case 'clean': return await cmdClean(o);
       case 'audit': return await cmdAudit();
       case 'config': return await cmdConfig(o);
+      case 'schedule': return await cmdSchedule(o);
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }
