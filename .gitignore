@@ -10,3 +10,8 @@ reports/
 dist/
 sea-prep.blob
 sea-bundle.js
+
+# .NET / GUI build artifacts
+gui/shell/bin/
+gui/shell/obj/
+gui/publish/

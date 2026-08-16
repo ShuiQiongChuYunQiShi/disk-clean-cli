@@ -619,6 +619,20 @@ function fail(msg) {
   return 1;
 }
 
+// ---------- 命令: serve（GUI 引擎 HTTP 服务，常驻不退出） ----------
+async function cmdServe(o) {
+  const serveLib = require('../lib/serve.js');
+  const port = o.values.port ? Number(o.values.port) : 0;
+  const token = o.values.token || '';
+  const web = o.values.web || '';
+  if (!token) return fail('serve 需要 --token <随机口令>（由 GUI 壳生成传入）');
+  console.log(col(C.cyan, '▶ 启动 GUI 引擎服务: ') + col(C.bold, '127.0.0.1:' + (port || '随机端口')));
+  if (web) console.log(col(C.gray, '  前端目录: ' + web));
+  serveLib.start({ port: port, token: token, web: web });
+  // 常驻：不 resolve，由 HTTP 服务器维持事件循环
+  return new Promise(function() { /* keep alive */ });
+}
+
 // ---------- main ----------
 async function main() {
   const argv = process.argv.slice(2);
@@ -635,6 +649,7 @@ async function main() {
       case 'audit': return await cmdAudit();
       case 'config': return await cmdConfig(o);
       case 'schedule': return await cmdSchedule(o);
+      case 'serve': return await cmdServe(o);
       case 'mftscan': return await cmdMftScan(o);
       case 'health': return await cmdHealth();
       case 'quota': return await cmdQuota(o);
