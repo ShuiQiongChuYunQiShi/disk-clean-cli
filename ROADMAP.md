@@ -125,17 +125,18 @@ Commands:
 
 ## 6. Phase 4 — 规则配置文件（优化④）
 
-- 配置文件 `~/.disk-clean/config.json`（或 `--config <file>`）：
-  - `exclude`：白名单（永不清理/移动的路径）
-  - `blacklist`：黑名单（强制清理/移动的路径）
-  - `thresholds`：可调阈值（散落 ≥100MB / ≥30 天、重复 ≥1MB、陈旧 ≥730 天 等）
-  - `retention`：保留策略（日志保留、报告保留）
-  - `junkRules`：扩展垃圾规则（自定义目录特征 → 分类）
-  - `organizeRules`：自定义整理映射（分类 → 目标目录）
-- 引擎改为读取配置（默认值兜底）。
-- `disk-clean config` 子命令：查看/写入配置。
+- ✅ 配置文件 `~/.disk-clean/config.json`（或 `--config <file>`）：
+  - `exclude`：白名单（永不清理/移动，扫描时跳过）
+  - `blacklist`：黑名单（预留；CLI clean 自动附加候选）
+  - `thresholds`：可调阈值（looseMinBytes/looseMinDays、staleMinBytes/staleMinDays、dupMinBytes）
+  - `retention`：保留策略（审计行数、报告份数）
+  - `junkRules` / `organizeRules`：自定义规则（配置结构已就绪，引擎接入 v1.1）
+- ✅ 引擎读取配置（默认值兜底）：`lib/config.js`（deepMerge 默认）+ engine `run()` 加载覆盖阈值与 exclude。
+- ✅ `disk-clean config` 子命令：show / set <json路径> <值> / reset / path。
+- ✅ `scan --config <file>` 透传（修 cmdScan 未传 --config 的 bug）。
 
-**验收**：修改阈值后扫描结果按新阈值变化；黑名单路径不再出现在建议中。
+**验收（2026-08-16 实测）**：
+- ✅ `config set thresholds.looseMinBytes 10485760` 后，20MB 测试目录被识别为散落候选（默认 100MB 不识别），报告 organizeCandidates=1 + 终端"散落目录候选"均正确；默认阈值对照为 0。
 
 ---
 
@@ -265,7 +266,7 @@ Commands:
 | Phase 1 | 2026-08-16 | 独立 CLI 全命令验证通过；修复 mkdir-EPERM/BOM/空批次/瞬时锁 4 个 bug；同步回插件 |
 | Phase 2 | 2026-08-16 | SEA 单文件 exe（82MB，零外部二进制）；无 Node 环境验证通过；demo 素材 + build-sea.ps1 |
 | Phase 3 | 2026-08-16 | 英文 README + MIT + CI(SEA) + CONTRIBUTING + issues 模板 + git 首次提交；zh-CN README 待补 |
-| Phase 4 | ⬜ | — |
+| Phase 4 | 2026-08-16 | 规则配置文件 config.json：阈值覆盖 + exclude 白名单 + `config` 子命令(show/set/reset/path)；阈值生效对照验证通过 |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |
 | Phase 7 | ⬜ | — |

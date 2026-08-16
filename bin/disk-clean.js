@@ -12,6 +12,7 @@ const { run, buildMarkdown } = require('../lib/engine.js');
 const audit = require('../lib/audit.js');
 const organize = require('../lib/organize.js');
 const clean = require('../lib/clean.js');
+const configLib = require('../lib/config.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -79,6 +80,7 @@ async function cmdScan(o) {
   const ex = (o.values.exclude || '').split(';').filter(Boolean);
   const argv = ['--roots', roots.join(';'), '--suggest'];
   if (o.values.exclude) argv.push('--exclude', o.values.exclude);
+  if (o.values.config) argv.push('--config', o.values.config);
   argv.push('--report', reportPath, '--progress', progressPath);
   console.log(col(C.cyan, '▶ 正在扫描:') + ' ' + col(C.bold, roots.join(', ')));
   // 后台子进程跑引擎（SEA/pkg 环境下自我调用 --internal-scan），主进程轮询进度
@@ -321,6 +323,46 @@ async function cmdAudit() {
   return 0;
 }
 
+// ---------- 命令: config ----------
+async function cmdConfig(o) {
+  const sub = o._[0] || 'show';
+  const file = o.values.config || o.values.file || configLib.configPath();
+  if (sub === 'path') { console.log(file); return 0; }
+  if (sub === 'show') {
+    const cfg = configLib.load(file);
+    console.log(col(C.cyan, '── 配置 (' + file + ') ──'));
+    console.log(JSON.stringify(cfg, null, 2));
+    return 0;
+  }
+  if (sub === 'set') {
+    // 用法: disk-clean config set <json-path> <value>  （如 thresholds.looseMinBytes 209715200）
+    const key = o._[1];
+    const value = o._[2];
+    if (!key || value === undefined) return fail('用法: disk-clean config set <json路径> <值>（如 thresholds.looseMinBytes 209715200）');
+    const cfg = configLib.load(file);
+    const keys = key.split('.');
+    let cur = cfg;
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (cur[keys[i]] === undefined || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};
+      cur = cur[keys[i]];
+    }
+    const last = keys[keys.length - 1];
+    const num = Number(value);
+    cur[last] = (value !== '' && !isNaN(num) && String(value).trim() !== '') ? num : value;
+    const r = configLib.save(cfg, file);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, '✔ ') + key + ' = ' + JSON.stringify(cur[last]) + '  (' + r.file + ')');
+    return 0;
+  }
+  if (sub === 'reset') {
+    const r = configLib.save(configLib.DEFAULT_CONFIG, file);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, '✔ 配置已重置为默认 (' + r.file + ')'));
+    return 0;
+  }
+  return fail('config 子命令: show | set <path> <value> | reset | path');
+}
+
 // ---------- help / version ----------
 function help() {
   console.log(col(C.bold, 'disk-clean v' + VER + ' — Windows 磁盘清理与分析 CLI'));
@@ -339,6 +381,7 @@ function help() {
   console.log('  clean <type> [paths...]    清理: junk-temp|empty-dirs|duplicates|recycle-bin');
   console.log('                              (默认预览, --yes 执行; 移入回收站可恢复)');
   console.log('  audit                      查看操作审计日志');
+  console.log('  config                     查看/设置规则配置 (show|set|reset|path)');
   console.log('');
   console.log('通用选项:');
   console.log('  --report <file>  指定报告文件位置');
@@ -368,6 +411,7 @@ async function main() {
       case 'fix-shortcuts': return await cmdFixShortcuts(o);
       case 'clean': return await cmdClean(o);
       case 'audit': return await cmdAudit();
+      case 'config': return await cmdConfig(o);
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }

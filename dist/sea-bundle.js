@@ -9,6 +9,91 @@ var __commonJS = (cb, mod) => function __require() {
   }
 };
 
+// lib/config.js
+var require_config = __commonJS({
+  "lib/config.js"(exports2, module2) {
+    "use strict";
+    var fs2 = require("fs");
+    var path2 = require("path");
+    var os2 = require("os");
+    var DEFAULT_CONFIG = {
+      version: 1,
+      // 永不清理/移动的路径（前缀匹配，大小写不敏感）
+      exclude: [],
+      // 强制清理/移动候选（覆盖建议过滤；路径必须仍通过系统目录红线检查）
+      blacklist: [],
+      // 阈值
+      thresholds: {
+        looseMinBytes: 100 * 1024 * 1024,
+        // 散落目录最小字节（默认 100MB）
+        looseMinDays: 30,
+        // 散落目录修改距今天数
+        staleMinBytes: 500 * 1024 * 1024,
+        // 陈旧大文件最小字节
+        staleMinDays: 730,
+        // 陈旧阈值天数
+        dupMinBytes: 1 * 1024 * 1024
+        // 重复文件最小字节
+      },
+      // 保留策略
+      retention: {
+        auditLines: 5e3,
+        // 审计日志最大行数（超限截断）
+        reports: 30
+        // 保留最近 N 份报告
+      },
+      // 自定义垃圾规则：{ label, match: 子串数组（命中任一即该分类） }
+      junkRules: [],
+      // 自定义整理映射：{ 扩展名: 整理区分类 }（如 { "exe": "安装包" }）
+      organizeRules: {}
+    };
+    function configPath() {
+      return path2.join(os2.homedir(), ".disk-clean", "config.json");
+    }
+    function deepMerge(base, extra) {
+      const out = Array.isArray(base) ? base.slice() : Object.assign({}, base);
+      if (!extra || typeof extra !== "object") return out;
+      for (const k of Object.keys(extra)) {
+        const v = extra[k];
+        if (v && typeof v === "object" && !Array.isArray(v) && out[k] && typeof out[k] === "object" && !Array.isArray(out[k])) {
+          out[k] = deepMerge(out[k], v);
+        } else {
+          out[k] = v;
+        }
+      }
+      return out;
+    }
+    function load(p) {
+      const file = p || configPath();
+      let raw = null;
+      try {
+        raw = fs2.readFileSync(file, "utf8");
+        if (raw.charCodeAt(0) === 65279) raw = raw.slice(1);
+        raw = JSON.parse(raw);
+      } catch (e) {
+        raw = null;
+      }
+      return deepMerge(DEFAULT_CONFIG, raw || {});
+    }
+    function save(cfg, p) {
+      const file = p || configPath();
+      try {
+        fs2.mkdirSync(path2.dirname(file), { recursive: true });
+        fs2.writeFileSync(file, JSON.stringify(cfg, null, 2), "utf8");
+        return { ok: true, file };
+      } catch (e) {
+        return { ok: false, error: e && e.message ? e.message : String(e) };
+      }
+    }
+    function normPrefixes(list) {
+      return (list || []).map(function(s) {
+        return String(s || "").toLowerCase().replace(/[\\/]+$/, "");
+      }).filter(Boolean);
+    }
+    module2.exports = { DEFAULT_CONFIG, configPath, load, save, deepMerge, normPrefixes };
+  }
+});
+
 // lib/engine.js
 var require_engine = __commonJS({
   "lib/engine.js"(exports2, module2) {
@@ -1123,6 +1208,21 @@ var require_engine = __commonJS({
       reportFile = opt("--report", "") || "";
       withTime = args.indexOf("--time") >= 0;
       suggestMode = args.indexOf("--suggest") >= 0;
+      try {
+        const cfgLib = require_config();
+        const cfg = cfgLib.load(opt("--config", ""));
+        if (cfg) {
+          const t = cfg.thresholds || {};
+          if (t.staleMinDays) STALE_MS = Number(t.staleMinDays) * DAYS;
+          if (t.staleMinBytes) STALE_LARGE_MIN = Number(t.staleMinBytes);
+          if (t.dupMinBytes) DUP_MIN_SIZE = Number(t.dupMinBytes);
+          if (t.looseMinDays) LOOSE_MS = Number(t.looseMinDays) * DAYS;
+          if (t.looseMinBytes) LOOSE_MIN = Number(t.looseMinBytes);
+          const exP = cfgLib.normPrefixes(cfg.exclude);
+          if (exP.length) excludes = excludes.concat(exP);
+        }
+      } catch (e) {
+      }
       const t0 = Date.now();
       const modeDir = opt("--dir", "");
       const modeOrganize = args.indexOf("--organize") >= 0;
@@ -1832,6 +1932,7 @@ var { run, buildMarkdown } = require_engine();
 var audit = require_audit();
 var organize = require_organize();
 var clean = require_clean();
+var configLib = require_config();
 if (process.argv[2] === "--internal-scan") {
   const engArgs = process.argv.slice(3);
   run(engArgs).then(function(res) {
@@ -1920,6 +2021,7 @@ async function cmdScan(o) {
   const ex = (o.values.exclude || "").split(";").filter(Boolean);
   const argv = ["--roots", roots.join(";"), "--suggest"];
   if (o.values.exclude) argv.push("--exclude", o.values.exclude);
+  if (o.values.config) argv.push("--config", o.values.config);
   argv.push("--report", reportPath, "--progress", progressPath);
   console.log(col(C.cyan, "\u25B6 \u6B63\u5728\u626B\u63CF:") + " " + col(C.bold, roots.join(", ")));
   const selfArgs = IS_SEA ? ["--internal-scan"] : [__filename, "--internal-scan"];
@@ -2172,6 +2274,46 @@ async function cmdAudit() {
   console.log(col(C.gray, "  \u5B8C\u6574\u65E5\u5FD7: " + audit.auditFile()));
   return 0;
 }
+async function cmdConfig(o) {
+  const sub = o._[0] || "show";
+  const file = o.values.config || o.values.file || configLib.configPath();
+  if (sub === "path") {
+    console.log(file);
+    return 0;
+  }
+  if (sub === "show") {
+    const cfg = configLib.load(file);
+    console.log(col(C.cyan, "\u2500\u2500 \u914D\u7F6E (" + file + ") \u2500\u2500"));
+    console.log(JSON.stringify(cfg, null, 2));
+    return 0;
+  }
+  if (sub === "set") {
+    const key = o._[1];
+    const value = o._[2];
+    if (!key || value === void 0) return fail("\u7528\u6CD5: disk-clean config set <json\u8DEF\u5F84> <\u503C>\uFF08\u5982 thresholds.looseMinBytes 209715200\uFF09");
+    const cfg = configLib.load(file);
+    const keys = key.split(".");
+    let cur = cfg;
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (cur[keys[i]] === void 0 || typeof cur[keys[i]] !== "object") cur[keys[i]] = {};
+      cur = cur[keys[i]];
+    }
+    const last = keys[keys.length - 1];
+    const num = Number(value);
+    cur[last] = value !== "" && !isNaN(num) && String(value).trim() !== "" ? num : value;
+    const r = configLib.save(cfg, file);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, "\u2714 ") + key + " = " + JSON.stringify(cur[last]) + "  (" + r.file + ")");
+    return 0;
+  }
+  if (sub === "reset") {
+    const r = configLib.save(configLib.DEFAULT_CONFIG, file);
+    if (!r.ok) return fail(r.error);
+    console.log(col(C.green, "\u2714 \u914D\u7F6E\u5DF2\u91CD\u7F6E\u4E3A\u9ED8\u8BA4 (" + r.file + ")"));
+    return 0;
+  }
+  return fail("config \u5B50\u547D\u4EE4: show | set <path> <value> | reset | path");
+}
 function help() {
   console.log(col(C.bold, "disk-clean v" + VER + " \u2014 Windows \u78C1\u76D8\u6E05\u7406\u4E0E\u5206\u6790 CLI"));
   console.log("");
@@ -2189,6 +2331,7 @@ function help() {
   console.log("  clean <type> [paths...]    \u6E05\u7406: junk-temp|empty-dirs|duplicates|recycle-bin");
   console.log("                              (\u9ED8\u8BA4\u9884\u89C8, --yes \u6267\u884C; \u79FB\u5165\u56DE\u6536\u7AD9\u53EF\u6062\u590D)");
   console.log("  audit                      \u67E5\u770B\u64CD\u4F5C\u5BA1\u8BA1\u65E5\u5FD7");
+  console.log("  config                     \u67E5\u770B/\u8BBE\u7F6E\u89C4\u5219\u914D\u7F6E (show|set|reset|path)");
   console.log("");
   console.log("\u901A\u7528\u9009\u9879:");
   console.log("  --report <file>  \u6307\u5B9A\u62A5\u544A\u6587\u4EF6\u4F4D\u7F6E");
@@ -2221,6 +2364,8 @@ async function main() {
         return await cmdClean(o);
       case "audit":
         return await cmdAudit();
+      case "config":
+        return await cmdConfig(o);
       case "version":
       case "-v":
       case "--version":
