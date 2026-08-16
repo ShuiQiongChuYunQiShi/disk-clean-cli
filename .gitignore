@@ -15,3 +15,4 @@ sea-bundle.js
 gui/shell/bin/
 gui/shell/obj/
 gui/publish/
+gui/stage/
