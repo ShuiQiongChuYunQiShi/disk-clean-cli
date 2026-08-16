@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>disk-clean</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true">
+        <circle cx="16" cy="16" r="13" fill="none" stroke="#3ddc84" stroke-width="2.5"/>
+        <path d="M9 16a7 7 0 0 1 10.6-6L16 13l1.6 5.4L23 15.4A7 7 0 1 1 9 16z" fill="#3ddc84"/>
+      </svg>
+      <div>
+        <div class="logo-name">disk-clean</div>
+        <div class="logo-sub" id="verLabel">v0.3.0</div>
+      </div>
+    </div>
+    <nav id="nav">
+      <button class="nav-item active" data-view="home">&#9632; <span data-i18n="nav.home">主页</span></button>
+      <div class="nav-group" data-i18n="nav.advanced">高级</div>
+      <button class="nav-item" data-view="organize">&#8645; <span data-i18n="nav.organize">整理</span></button>
+      <button class="nav-item" data-view="health">&#9829; <span data-i18n="nav.health">健康</span></button>
+      <button class="nav-item" data-view="dedup">&#8733; <span data-i18n="nav.dedup">去重</span></button>
+      <button class="nav-item" data-view="quota">&#9783; <span data-i18n="nav.quota">配额</span></button>
+      <button class="nav-item" data-view="mft">&#9881; <span data-i18n="nav.mft">MFT 快扫</span></button>
+      <button class="nav-item" data-view="schedule">&#9201; <span data-i18n="nav.schedule">计划任务</span></button>
+      <button class="nav-item" data-view="config">&#9881; <span data-i18n="nav.config">配置</span></button>
+      <button class="nav-item" data-view="audit">&#9776; <span data-i18n="nav.audit">审计</span></button>
+    </nav>
+    <div class="sidebar-foot">
+      <button id="langBtn" title="切换语言">EN</button>
+      <span class="foot-note" data-i18n="foot.admin">需要管理员权限</span>
+    </div>
+  </aside>
+
+  <main id="content">
+
+    <!-- ============ 主页 ============ -->
+    <section id="view-home" class="view active">
+      <h1 data-i18n="home.title">磁盘清理与分析</h1>
+      <p class="muted" data-i18n="home.sub">扫描磁盘，获取智能建议，一键安全清理微信/QQ 等缓存与大文件。</p>
+
+      <div class="card">
+        <div class="card-title" data-i18n="home.drives">选择要扫描的磁盘</div>
+        <div id="driveGrid" class="drive-grid"></div>
+        <div class="row gap">
+          <input id="excludeInput" class="input grow" placeholder="排除路径（分号分隔，可选）" data-i18n-ph="home.exclude">
+          <button id="scanBtn" class="btn primary" data-i18n="home.scanBtn">开始扫描</button>
+        </div>
+        <div id="scanProgress" class="progress-wrap hidden">
+          <div class="progress-track"><div class="progress-fill" id="scanFill" style="width:0%"></div></div>
+          <div class="progress-text" id="scanProgressText"></div>
+        </div>
+      </div>
+
+      <div id="homeReport" class="hidden">
+        <div class="row gap wrap">
+          <div class="stat-card"><div class="stat-num" id="statTotal">-</div><div class="stat-label" data-i18n="home.statTotal">总大小</div></div>
+          <div class="stat-card"><div class="stat-num" id="statFiles">-</div><div class="stat-label" data-i18n="home.statFiles">文件</div></div>
+          <div class="stat-card"><div class="stat-num" id="statDirs">-</div><div class="stat-label" data-i18n="home.statDirs">目录</div></div>
+          <div class="stat-card"><div class="stat-num" id="statEmpty">-</div><div class="stat-label" data-i18n="home.statEmpty">空目录</div></div>
+          <div class="stat-card"><div class="stat-num" id="statDur">-</div><div class="stat-label" data-i18n="home.statDur">耗时</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title" data-i18n="home.categories">类别分布</div>
+          <div id="categoryChart" class="chart"></div>
+        </div>
+        <div id="suggestions"></div>
+      </div>
+    </section>
+
+    <!-- ============ 高级 Tab：共用壳 ============ -->
+    <section id="view-organize" class="view"><h1 data-i18n="nav.organize">目录整理</h1><div id="tab-organize"></div></section>
+    <section id="view-health" class="view"><h1 data-i18n="nav.health">磁盘健康</h1><div id="tab-health"></div></section>
+    <section id="view-dedup" class="view"><h1 data-i18n="nav.dedup">重复文件</h1><div id="tab-dedup"></div></section>
+    <section id="view-quota" class="view"><h1 data-i18n="nav.quota">用户配额</h1><div id="tab-quota"></div></section>
+    <section id="view-mft" class="view"><h1 data-i18n="nav.mft">MFT 快速扫描</h1><div id="tab-mft"></div></section>
+    <section id="view-schedule" class="view"><h1 data-i18n="nav.schedule">计划任务</h1><div id="tab-schedule"></div></section>
+    <section id="view-config" class="view"><h1 data-i18n="nav.config">配置</h1><div id="tab-config"></div></section>
+    <section id="view-audit" class="view"><h1 data-i18n="nav.audit">审计日志</h1><div id="tab-audit"></div></section>
+
+  </main>
+</div>
+
+<div id="modalWrap" class="hidden">
+  <div id="modal">
+    <div id="modalTitle" class="card-title"></div>
+    <div id="modalBody"></div>
+    <div class="row right gap">
+      <button id="modalCancel" class="btn" data-i18n="common.cancel">取消</button>
+      <button id="modalOk" class="btn danger" data-i18n="common.confirm">确认</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

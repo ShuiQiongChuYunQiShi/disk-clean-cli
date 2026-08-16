@@ -46,6 +46,10 @@ disk-clean scan D:\
 
 同一引擎也以 DSH agent preset（`disk-analyzer`）形式提供，支持自然语言控制与实时图表面板。见 [plugin/README.md](plugin/README.md)。
 
+### 方式 D —— 原生 GUI 窗口（WebView2）
+
+从 [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) 下载 `disk-clean-setup-<版本>.exe` —— 原生桌面窗口（WinForms + WebView2），双语（中/英）仪表盘：一键扫描、智能建议、一键清理，另含高级页（整理 / 健康 / 去重 / 配额 / MFT / 计划任务 / 配置 / 审计）。安装器检测 .NET 8 Desktop Runtime 与 WebView2，缺失时引导下载。详见 [docs/GUI-PLAN.md](docs/GUI-PLAN.md)。
+
 ---
 
 ## 快速上手

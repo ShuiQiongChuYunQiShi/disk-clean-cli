@@ -48,6 +48,10 @@ disk-clean scan D:\
 
 The same engine also ships as a DSH agent preset (`disk-analyzer`) with natural-language control and a live chart panel. See [plugin/README.md](plugin/README.md).
 
+### Option D — Native GUI (WebView2 window)
+
+Download `disk-clean-setup-<ver>.exe` from [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) — a native desktop window (WinForms + WebView2) with a bilingual (zh/en) dashboard: one-click scan, suggestions, cleanup, plus advanced tabs (organize / health / dedup / quota / MFT / schedule / config / audit). The installer detects and bootstraps .NET 8 Desktop Runtime and WebView2 when missing. See [docs/GUI-PLAN.md](docs/GUI-PLAN.md) and [README.zh-CN.md](README.zh-CN.md).
+
 ---
 
 ## Quick start

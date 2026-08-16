@@ -9,6 +9,12 @@
   preset 根目录，复制到任意主机预设 id 下无需改代码。
 - **中文 README**：新增 `README.zh-CN.md`（英文 README 的完整中文版），README.md
   顶部加语言切换链接。
+- **GUI 原生窗口版（WebView2）**：`gui/`——C# WinForms + WebView2 桌面壳
+  （.NET 8 框架依赖单 exe ~24MB）+ 引擎 `--serve` HTTP 层（8 工具 REST 化，仅
+  绑定 127.0.0.1 + Bearer token 鉴权）+ 零依赖前端两级 UI（主页极简 + 高级 8 Tab，
+  双语 zh/en）。Inno Setup 安装器（检测 .NET 8 Desktop Runtime / WebView2，缺则
+  引导官方 bootstrapper）。构建：`scripts/build-installer.ps1` → `gui/dist/`。
+  详见 `docs/GUI-PLAN.md`。
 
 ### Fixed
 - README 中失效的 Releases 相对链接（`../../releases`）改为仓库 Releases 绝对 URL。
