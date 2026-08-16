@@ -263,8 +263,8 @@ Commands:
 |---|---|---|
 | Phase 0 | 2026-08-16 | 目录结构 + ROADMAP + package.json/.gitignore |
 | Phase 1 | 2026-08-16 | 独立 CLI 全命令验证通过；修复 mkdir-EPERM/BOM/空批次/瞬时锁 4 个 bug；同步回插件 |
-| Phase 2 | ⬜ | — |
-| Phase 3 | ⬜ | — |
+| Phase 2 | 2026-08-16 | SEA 单文件 exe（82MB，零外部二进制）；无 Node 环境验证通过；demo 素材 + build-sea.ps1 |
+| Phase 3 | 2026-08-16 | 英文 README + MIT + CI(SEA) + CONTRIBUTING + issues 模板 + git 首次提交；zh-CN README 待补 |
 | Phase 4 | ⬜ | — |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |

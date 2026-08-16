@@ -21,11 +21,11 @@ jobs:
       - name: Smoke test
         run: node test/engine-smoke.js
 
-      - name: Install pkg
-        run: npm install --save-dev @yao-pkg/pkg
+      - name: Install build deps
+        run: npm install --save-dev esbuild postject
 
-      - name: Build exe
-        run: npx pkg bin\disk-clean.js --targets node22-win-x64 --output dist\disk-clean-win-x64.exe
+      - name: Build exe (Node SEA)
+        run: powershell -ExecutionPolicy Bypass -File scripts\build-sea.ps1
 
       - name: Checksums
         run: |

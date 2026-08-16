@@ -6,3 +6,7 @@ test/tree/
 reports/
 *.out.json
 .DS_Store
+
+dist/
+sea-prep.blob
+sea-bundle.js
