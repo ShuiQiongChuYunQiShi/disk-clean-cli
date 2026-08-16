@@ -243,7 +243,12 @@ scripts/build-installer.ps1
     失败返回 -1；**BaseName 只传裸文件名**（自动落到 `{tmp}`），传全路径会前缀重复。
   - `FindFirst`/`FindClose` 用 `TFindRec` 结构体，不是 String。
   - 中文向导语言文件（ChineseSimplified.isl）官方安装包不带——向导用英文，程序 UI 双语不受影响。
-- 安装产物校验：静默安装 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR=<测试目录> /NOCANCEL`
+- **正式安装必须显式指定带引号目录**：`/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\Program Files\disk-clean"`——
+  仅靠 `DefaultDirName` 会被 **Inno 的"同 AppId 沿用旧安装目录"** 覆盖（v0.3.1 曾把 E2E 残留
+  `%TEMP%\dsk-final-test\app` 当正式安装更新）。先读卸载注册表清理旧残留再装。
+- **Start-Process -ArgumentList 含空格参数**：数组传入会按空格拆分（`/DIR=C:\Program Files\...` 断成
+  `/DIR=C:\Program`）——传**整体字符串**并在路径外加引号。
+- 安装产物校验：静默安装 `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL`
   → EXIT=0 且 `disk-clean-ui.exe + engine.exe + web\ + unins000.exe` 就位 → 从安装目录启动 GUI
   → 引擎 health OK / index 200。
 

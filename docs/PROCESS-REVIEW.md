@@ -204,6 +204,8 @@
 | G41 | 主页卡片视觉选中态与实际不一致 | `loadDrives` 重建卡片未按 `selectedDrives` 恢复样式（刷新后看到"没选中"但数组有值） | `syncDriveCards()` 统一同步样式+计数 |
 | G42 | 扫描无取消入口 | serve 层无中断 API | `POST /api/scan/cancel`（SIGTERM→engine cancelled）+ 前端取消按钮；**取消测试必须用临时 report 路径**，否则覆盖好报告 |
 | G43 | 数据正确性验证缺方法 | — | 三重断言：`roots==所选`；`totalBytes ≤ 卷容量`；`categorySum==totalBytes`（D 全量 0 差）。D：138.2 万文件 / 19.7 万目录 / 587.26GB ✅ |
+| G44 | 正式安装跑进了 `%TEMP%\dsk-final-test\app`（E2E 残留） | **Inno Setup 检测到同 AppId 已注册时，沿用旧安装目录**而非 `DefaultDirName`；上一轮 E2E 临时安装的注册项没清理 | 正式安装前：读卸载注册表确认旧位置 → `unins000.exe /VERYSILENT` 卸载 → 删除残留目录 → **显式 `/DIR="C:\Program Files\disk-clean"`（带引号）** 全新安装；E2E 用临时目录安装后必须卸载或清理注册项 |
+| G45 | 带空格参数被 Start-Process 拆断 | `-ArgumentList '/DIR=C:\Program','Files\disk-clean'`（数组按空格拆）→ 装到 `C:\Program\` | ArgumentList 传**整体字符串**：`'/VERYSILENT ... /DIR="C:\Program Files\disk-clean"'` |
 
 好点（继续沿用）：
 - **用报告文件实证**定位"2.2TB"真相（不猜、不甩锅给容量算法）；`statfsSync` 实测与用户口述吻合。

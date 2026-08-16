@@ -78,6 +78,10 @@ installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺�
 13. **取消与校验**：`POST /api/scan/cancel {job}`；取消测试用临时 report 路径
     （`body.report=$TEMP\x.json`）防覆盖好报告；发布用 `dist/SHA256SUMS.txt` 是**手工组装**
     （build-sea 只写 `dist/checksums.txt` + `exe.sha256`）。
+14. **安装验证两坑**：① Inno 同 AppId 已注册时**沿用旧安装目录**（E2E 残留会变成"正式安装"）——
+    先查/清卸载注册表，正式安装显式 `/DIR="C:\Program Files\disk-clean"`；② `Start-Process
+    -ArgumentList` 数组按空格拆参数（`/DIR=C:\Program Files` 断成 `/DIR=C:\Program`）——
+    传**整体字符串**含引号。
 
 ## 三、开发工作流（改前端为例）
 
