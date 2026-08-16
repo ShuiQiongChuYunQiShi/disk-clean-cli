@@ -16,6 +16,10 @@ const configLib = require('../lib/config.js');
 const scheduleLib = require('../lib/schedule.js');
 const mftLib = require('../lib/mftscan.js');
 const healthLib = require('../lib/health.js');
+const dedupLib = require('../lib/dedup.js');
+const quotaLib = require('../lib/quota.js');
+const restoreLib = require('../lib/restore.js');
+const i18nLib = require('../lib/i18n.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -84,6 +88,7 @@ async function cmdScan(o) {
   const argv = ['--roots', roots.join(';'), '--suggest'];
   if (o.values.exclude) argv.push('--exclude', o.values.exclude);
   if (o.values.config) argv.push('--config', o.values.config);
+  if (o.values.lang) argv.push('--lang', o.values.lang);
   argv.push('--report', reportPath, '--progress', progressPath);
   console.log(col(C.cyan, '▶ 正在扫描:') + ' ' + col(C.bold, roots.join(', ')));
   // 后台子进程跑引擎（SEA/pkg 环境下自我调用 --internal-scan），主进程轮询进度
@@ -117,7 +122,8 @@ async function cmdScan(o) {
   const rep = audit.readJson(reportPath);
   if (!rep) return fail('扫描完成但无法读取报告: ' + reportPath);
   try {
-    const md = buildMarkdown(rep, rep.elapsedMs || 0);
+    const lang = i18nLib.detect(o.values.lang);
+    const md = buildMarkdown(rep, rep.elapsedMs || 0, lang);
     fs.writeFileSync(audit.mdFile(), md, 'utf8');
   } catch (e) { /* md 生成失败不阻断 */ }
   const s = rep.summary || {};
@@ -223,6 +229,11 @@ async function cmdOrganize(o) {
     if (!Array.isArray(planItems) || planItems.length === 0) return fail('缺少整理计划（先运行 organize plan）');
     const roots = await currentScanRoots(reportFile);
     // 安全默认：无 --yes 一律 dry-run 预览，绝不真实执行
+    if (!dryRun && yes && o.flags['restore-point']) {
+      const rp = restoreLib.create('disk-clean organize apply');
+      if (rp.ok) console.log(col(C.green, '✔ ' + rp.message));
+      else console.log(col(C.yellow, '⚠ ' + rp.message + '（继续执行，可在审计日志查看）'));
+    }
     const r = await organize.apply(planItems, { roots: roots, dryRun: dryRun || !yes });
     if (!r.ok) return fail(r.error);
     if (r.dryRun) {
@@ -302,6 +313,11 @@ async function cmdClean(o) {
   const v = clean.validate(type, paths, rep);
   if (!v.ok) return fail(v.error);
   // 安全默认：无 --yes 一律 dry-run 预览，绝不真实执行
+  if (!dryRun && yes && o.flags['restore-point']) {
+    const rp = restoreLib.create('disk-clean clean ' + type);
+    if (rp.ok) console.log(col(C.green, '✔ ' + rp.message));
+    else console.log(col(C.yellow, '⚠ ' + rp.message + '（继续执行，可在审计日志查看）'));
+  }
   const r = await clean.execute(type, v.paths, rep, dryRun || !yes);
   if (!r.ok) return fail(r.error);
   if (r.dryRun) {
@@ -323,6 +339,101 @@ async function cmdAudit() {
     console.log('  ' + t + '  ' + (e.type || '') + '/' + (e.action || '') + '  ' + (e.result || '') + '  ' + ((e.paths || []).length) + ' 路径');
   }
   console.log(col(C.gray, '  完整日志: ' + audit.auditFile()));
+  return 0;
+}
+
+// ---------- 命令: dedup（全盘哈希去重） ----------
+async function cmdDedup(o) {
+  const roots = o._.length > 0 ? o._ : ['C:\\', 'D:\\'];
+  const minBytes = o.values.min ? Number(o.values.min) : 0;
+  const dryRun = o.flags.dryRun || !o.flags.yes;
+  const doHardlink = !!o.flags.hardlink;
+  console.log(col(C.cyan, '▶ 全盘重复检测: ') + col(C.bold, roots.join(', ')) + (doHardlink ? '  (硬链接合并)' : ''));
+  console.log(col(C.gray, '  排除系统/程序目录；' + (minBytes ? '≥' + fmtBytes(minBytes) : '默认 ≥1MB') + '；哈希策略 head/tail 两阶段' + (doHardlink ? '（--hardlink 需 --yes）' : '')));
+  const r = await dedupLib.scan(roots, { minBytes: minBytes || undefined });
+  if (!r.ok) return fail(r.error || '去重扫描失败');
+  console.log(col(C.green, '✔ 扫描完成  (' + (r.elapsedMs / 1000).toFixed(1) + 's)  候选文件: ' + r.scannedFiles));
+  console.log('  重复组: ' + r.groups.length + '  重复占用: ' + fmtBytes(r.totalDupBytes) + '  可释放: ' + col(C.green, fmtBytes(r.totalSaveBytes)));
+  if (r.groups.length === 0) { console.log('（未发现重复文件）'); return 0; }
+  console.log('');
+  console.log(col(C.cyan, '── 重复组 Top 15 ──'));
+  const shown = r.groups.slice(0, 15);
+  for (const g of shown) {
+    console.log('  ' + fmtBytes(g.size).padStart(10) + ' ×' + g.files.length + (g.approx ? ' (近似)' : '') + '  可释放 ' + fmtBytes(g.size * (g.files.length - 1)));
+    for (const f of g.files.slice(0, 3)) console.log('    · ' + f.path);
+    if (g.files.length > 3) console.log('    … 共 ' + g.files.length + ' 个');
+  }
+  if (doHardlink) {
+    console.log('');
+    console.log(col(C.yellow, '⚠ 硬链接合并：将每组保留 1 个，其余转为硬链接（同卷内）。'));
+    if (dryRun) {
+      console.log(col(C.blue, '  --dry-run 预览：'));
+      let plan = 0;
+      for (const g of r.groups) {
+        const rr = dedupLib.hardlinkGroup(g, true);
+        for (const x of rr) { if (x.action === 'hardlink(预览)') plan++; }
+      }
+      console.log('  将合并 ' + plan + ' 个文件为硬链接，释放约 ' + fmtBytes(r.totalSaveBytes) + '。加 --yes 执行。');
+      return 0;
+    }
+    let ok = 0, failN = 0;
+    const merged = [];
+    for (const g of r.groups) {
+      const rr = dedupLib.hardlinkGroup(g, false);
+      for (const x of rr) {
+        if (x.action === 'hardlink') { ok++; merged.push(x.to); }
+        else if (x.action === 'fail') { failN++; console.log(col(C.yellow, '  ✗ ' + x.to + ': ' + (x.error || ''))); }
+      }
+    }
+    console.log(col(C.green, '✔ 硬链接合并完成: 成功 ' + ok + '，失败 ' + failN + '，释放约 ' + fmtBytes(r.totalSaveBytes)));
+    if (ok > 0) {
+      fs.writeFileSync(path.join(os.homedir(), '.disk-clean', 'dedup-map.json'), JSON.stringify({ at: new Date().toISOString(), merged: merged }, null, 2), 'utf8');
+      console.log(col(C.gray, '  回滚: disk-clean dedup --rollback-hardlinks'));
+    }
+  }
+  return 0;
+}
+
+async function cmdDedupRollback() {
+  const mapFile = path.join(os.homedir(), '.disk-clean', 'dedup-map.json');
+  let map;
+  try {
+    let raw = fs.readFileSync(mapFile, 'utf8');
+    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+    map = JSON.parse(raw);
+  } catch (e) { return fail('没有可回滚的硬链接记录 (' + mapFile + ')'); }
+  const merged = (map.merged || []).filter(function(p) { return fs.existsSync(p); });
+  if (merged.length === 0) { console.log('（没有需要还原的硬链接文件）'); return 0; }
+  const rr = dedupLib.rollbackHardlinks(merged);
+  let ok = 0;
+  for (const x of rr) { if (x.action === 'restored') ok++; }
+  fs.unlinkSync(mapFile);
+  console.log(col(C.green, '✔ 已还原 ' + ok + ' 个文件为独立副本，回滚完成。'));
+  return 0;
+}
+
+// ---------- 命令: quota（每用户配额分析） ----------
+async function cmdQuota(o) {
+  const drive = /^[a-zA-Z]:/.test(o._[0] || '') ? o._[0] : 'C:';
+  console.log(col(C.cyan, '▶ 配额分析: ') + col(C.bold, drive) + '  (基于 MFT 直读, 需管理员)');
+  const r = quotaLib.analyze(drive);
+  if (!r.ok) return fail(r.error + '（需要管理员权限且为 NTFS 卷）');
+  console.log(col(C.green, '✔ MFT 扫描完成 (' + (r.elapsedMs / 1000).toFixed(1) + 's, ' + r.mftRecords + ' 条记录)'));
+  const total = r.users.reduce(function(s, u) { return s + u.bytes; }, 0) + r.systemBytes;
+  console.log('  卷总量: ' + fmtBytes(total) + '  系统/其他: ' + fmtBytes(r.systemBytes));
+  console.log('');
+  console.log(col(C.cyan, '── 用户占用排行 ──'));
+  for (const u of r.users) {
+    const pct = total > 0 ? (u.bytes / total * 100).toFixed(1) : '0.0';
+    console.log('  ' + col(C.bold, u.name).padEnd(20) + fmtBytes(u.bytes).padStart(11) + '  (' + pct + '%)');
+    for (const s of u.subdirs) {
+      console.log('      ├ ' + s.name.padEnd(10) + fmtBytes(s.bytes).padStart(11));
+    }
+  }
+  if (r.users.length > 1) {
+    const top = r.users[0];
+    console.log(col(C.gray, '  最大占用用户: ' + top.name + ' (' + fmtBytes(top.bytes) + ')'));
+  }
   return 0;
 }
 
@@ -488,6 +599,11 @@ function help() {
   console.log('  schedule                   定时扫描: add|run|list|remove (仅扫描+报告, 不做清理)');
   console.log('  mftscan <盘符>             实验: NTFS MFT 直读快速扫描 (需管理员, ~8x 提速)');
   console.log('  health                     磁盘健康检查 (SMART/SSD Wear/温度)');
+  console.log('  dedup [roots...]           全盘重复文件检测 (排除系统/程序目录)');
+  console.log('      --hardlink             可选: 重复文件转硬链接省空间 (需 --yes, 可回滚)');
+  console.log('  dedup rollback             回滚硬链接合并');
+  console.log('  quota [盘符]               每用户配额分析 (MFT 直读, 需管理员)');
+  console.log('  clean / organize apply --restore-point   执行前先建系统还原点 (失败不中断)');
   console.log('');
   console.log('通用选项:');
   console.log('  --report <file>  指定报告文件位置');
@@ -521,6 +637,11 @@ async function main() {
       case 'schedule': return await cmdSchedule(o);
       case 'mftscan': return await cmdMftScan(o);
       case 'health': return await cmdHealth();
+      case 'quota': return await cmdQuota(o);
+      case 'dedup': {
+        if (o._[0] === 'rollback') return await cmdDedupRollback();
+        return await cmdDedup(o);
+      }
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }

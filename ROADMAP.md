@@ -292,6 +292,10 @@ Commands:
 | Phase 5 | 2026-08-16 | 定时任务 schedule：add/run/list/remove + schtasks 注册 + 报告归档；node 与 SEA exe 双环境端到端触发验证通过 |
 | Phase 6 | 2026-08-16 | MFT 直读快速扫描（实验）：runlist 解析 8 个碎片 run + FILE_NAME 长名优先 + 路径重建 + alloc/real 合理性 size 规则；`mftscan` 命令 5.5-8.4s vs 常规 43.1s（~8x），文件数 99%/目录 100% 一致 |
 | Phase 7 | 2026-08-16 | SMART/SSD 健康：`health` 命令（Get-PhysicalDisk + StorageReliabilityCounter：温度/Wear/通电/读写错误），健康分级（健康/注意/警告/危险）；两块 SSD 实测通过 |
+| Phase 8 | 2026-08-16 | 全盘哈希 dedup：`dedup [roots]`（排除系统/程序目录，head/tail 两阶段 + 小文件全哈希确认）；`--hardlink --yes` 硬链接合并 + `dedup rollback` 回滚（LinkType 验证通过）；D 盘实测 35s / 1503 组 / 可释放 17.3GB（微信备份/安装包/torch 跨环境重复） |
+| Phase 9 | 2026-08-16 | 每用户配额：`quota [盘符]`（MFT 目录聚合按 C:\Users\* 分组 + Downloads/Documents/Desktop 等子目录明细）；C 盘实测 administrator 1.1TB/74.9%（AppData 875GB/Desktop 77.8GB）；修复稀疏 journal 文件 size 超卷兜底 |
+| Phase 10 | 2026-08-16 | 系统还原点：organize apply / clean 支持 `--restore-point`（Checkpoint-Computer，.ps1 文件模式）；本机系统保护已开启（1 个还原点），创建受 Windows 24h 频率限制时明确提示且不中断（验收通过）；失败降级写日志 |
+| Phase 11 | 2026-08-16 | i18n 多语言：lib/i18n.js（en/zh 字典 + 自动检测：--lang > DSH_LANG/LANG > 系统语言）；scan Markdown 报告标题/表格双语（# Disk Scan Report / ## Summary 等），`--lang en|zh` 实测通过 |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |
 | Phase 7 | ⬜ | — |
