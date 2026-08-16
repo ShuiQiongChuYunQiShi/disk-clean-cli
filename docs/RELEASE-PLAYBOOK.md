@@ -181,6 +181,15 @@ disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB�
   （`extractCleanPaths`：duplicates←建议 removable / empty-dirs←emptyDirSample /
   junk-temp←temp 段过滤），与 CLI 提取逻辑一致；提取不到则安全拒绝（宁拒勿删）。
 - 静态托管：`STATIC_EXT` 白名单 + `path.resolve` 前缀校验防目录穿越。
+- **盘符容量铁律**：`/api/drives` 必须用 `fs.statfsSync(drive+':\\')` 返回
+  `{total: bsize*blocks, free: bsize*bfree, avail: bsize*bavail, used: total-free}`。
+  **绝不 `fs.statSync(root).blocks*512`**（那是根目录自身占用的块数，实测只有 ~24KB——
+  v0.3.0 的“盘符显示 24kb”即此根因）。Node ≥18.15 才有 statfsSync（本仓库 SEA 为 Node 22）。
+- **范围型操作铁律（扫描/去重/整理）**：服务端缺省 roots **只能回退最近报告
+  `summary.roots`**，无报告则 400 要求显式传入——绝不静默回退全盘
+  （v0.3.0 dedup 硬链接空 roots 曾回退扫 C:\+D:\，与预览范围不一致）。
+- **扫描取消**：`POST /api/scan/cancel {job}` → `proc.kill()`（SIGTERM → engine 置
+  cancelled，报告 status=cancelled 保留部分结果）；任务已完成返回 note、未知任务 404。
 - 常驻：`cmdServe` 返回 `new Promise(function(){})`；SIGTERM/SIGINT shutdown 杀全部 job 子进程。
 
 ### 3.5.3 前端（gui/web/，零依赖）
@@ -190,6 +199,17 @@ disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB�
   高级 8 Tab（organize/health/dedup/quota/mft/schedule/config/audit）。
 - 双语 i18n：`data-i18n` 属性 + `localStorage` 切换（zh 默认 / en）；SVG-free（CSS bar 图）。
 - 清理/整理一律「预览 → 确认弹窗 → 执行」双确认；毁伤操作接口后端默认 dryRun。
+- **选择策略（v0.3.1）**：首次启动默认只选 D:（不存在则取第一个盘）、`localStorage` 记忆
+  上次选择；「全选/清空」快捷按钮；`syncDriveCards()` 保证卡片视觉态与数组一致。
+  绝不做"默认全选"——v0.3.0 曾因全选+点击切换导致"以为选 D 实际扫 C+E+F（2.2TB）"。
+- **扫描前必须弹范围确认**：列出各盘已用/合计/可用 + 排除路径 +「扫描只读」提示，
+  确认后才 startScan（防误扫的一票否决点）。
+- **报告顶部必须回显扫描范围**（`summary.roots`）+ cancelled 徽章（部分结果）。
+- 扫描中提供「取消」按钮（POST /api/scan/cancel）；dedup 合并/清理执行后提示
+  "统计为清理前快照，可重新扫描刷新"。
+- 高级页细节：MFT 盘符从 `/api/drives` 动态生成（勿硬编码 C/D/E/F）；schedule
+  weekly 必须提供 day 下拉（服务端校验 MON..SUN，缺省必 400）；quota 缺省盘用
+  lastDrives[0] 兜底。
 
 ### 3.5.4 安装器（installer/disk-clean-ui.iss + scripts/build-installer.ps1）
 
@@ -197,6 +217,7 @@ disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB�
 
 ```
 scripts/build-installer.ps1
+  0) scripts/make-icon.ps1（System.Drawing 画 256 主图 → 16~256 多尺寸 PNG → PNG-in-ICO）
   1) dotnet publish gui/shell/DiskCleanUi.csproj -c Release -r win-x64 --self-contained false \
      -p:PublishSingleFile=true -o gui\stage
   2) scripts/build-sea.ps1（esbuild bundle + SEA blob + postject；产物 dist\disk-clean-win-x64.exe）
@@ -204,6 +225,13 @@ scripts/build-installer.ps1
   4) ISCC installer\disk-clean-ui.iss → gui\dist\disk-clean-setup-<ver>.exe（LZMA2 压缩）
   5) sha256 写入 .sha256
 ```
+
+- **图标三处接入**：csproj `<ApplicationIcon>app.ico</ApplicationIcon>`（exe/任务栏）、
+  iss `SetupIconFile=..\gui\shell\app.ico`（安装器）、web `favicon.svg`（页面，serve
+  静态白名单已含 .ico/.svg）。make-icon.ps1 是构建链 step 0，确保可复现。
+- **PS 5.1 图标脚本铁律**：`New-Object Type(` 参数列表**跨多行会解析失败返回 null**——
+  所有构造调用必须单行或 `::new()`；脚本注释保持**全 ASCII**（BOM-less UTF-8 中文会被
+  ANSI 错读导致诡异失败）。本项目其余 .ps1 同理。
 
 - **框架依赖 + 缺则引导**（体积优先，不自包含）：.iss `[Code]` 检测 .NET 8 Desktop Runtime
   与 WebView2，缺失时弹窗 → `DownloadTemporaryFile` 拉官方 bootstrapper → 静默安装。
@@ -223,13 +251,20 @@ scripts/build-installer.ps1
 
 - [ ] 原生窗口标题正确、无黑框（WebView2 先于窗口显示）
 - [ ] 无 token 请求 401；带 token drives/scan/organize/… 全部 200
+- [ ] **数据正确性三重断言**：`report.summary.roots == 所选`；`totalBytes ≤ 卷容量`
+      （statfsSync 对照）；`categorySum == totalBytes`（0 差）——用真机全量扫描验证
 - [ ] 扫描 → 进度轮询 → report 完整返回；clean 空路径自动提取
+- [ ] 扫描取消：任意状态可 cancel（done 任务返回 note、未知 404）；**取消测试用临时
+      report 路径**（`body.report=$TEMP\x.json`），避免覆盖好报告
 - [ ] **Edge headless 渲染**：`msedge.exe --headless=new --disable-gpu --user-data-dir=<临时> --dump-dom --virtual-time-budget=8000 "http://127.0.0.1:<port>/?token=<t>"`
-      → 检查 nav-item / drive-card / 无 `Uncaught|ReferenceError|TypeError`
+      → 检查 nav-item / drive-card / 真实容量数字 / 默认选中 D / 无 `Uncaught|ReferenceError|TypeError`
       （旧 `--headless` 模式可能空输出，必须 `--headless=new` + 独立 profile）
+- [ ] PS 5.1 调 API 发中文 JSON 用 `[Text.Encoding]::UTF8.GetBytes($json)` 字节体
+      （字符串体默认 Latin-1，中文变 `???` 造成假 400）
 - [ ] 安装器静默安装 EXIT=0 → 启动即用（引擎 spawn 日志出现 serve 行）
-- [ ] **从 GitHub 下载 → Get-FileHash 与本地一致 → 静默安装 → 启动 → 健康 0.3.0 → 页面 200**
-      （完整用户路径才是发布成功的判据）
+- [ ] **从 GitHub 下载 → Get-FileHash 与本地一致 → 静默安装 → 启动 → 健康 → 页面 200**
+      （完整用户路径才是发布成功的判据；`dist/SHA256SUMS.txt` 是发布时组装的，build-sea
+      只写 `dist/checksums.txt` + `exe.sha256`，发布前重算并双向核对）
 
 ---
 
@@ -315,6 +350,17 @@ checksums.txt           （version=<版本> 行，构建产物）
 11. PS 5.1 **无三元运算符 `? :`**（解析错误）——用 if/else。gh/PSScript 输出解析
     PowerShell 5.1 会把 stderr 混进 stdout（NativeCommandError 噪音）——用 `Out-String`
     或重定向到文件再解析，复杂 JSON 直接用 Invoke-RestMethod API 层验证。
+12. **盘符容量 = `fs.statfsSync` 唯一解**（`statSync(root).blocks` 是目录自身块数，显示
+    24kb 事故即此）。GUI `/api/drives` 返回 `{total, free, avail, used}`，前端卡片画
+    进度条 + 已用/可用。
+13. **范围型操作（扫描/去重/整理）三要件**：界面默认只选数据盘并记忆、操作前范围确认
+    弹窗、服务端缺省只回退最近报告 roots。**禁止静默全盘**（曾致 dedup 硬链接扫 C+\+D\、
+    主页误扫 C+E+F）。
+14. **PS 5.1 脚本构造调用单行 / `::new()` + 全 ASCII 注释**；`New-Object Type(` 跨行
+    → 解析失败返回 null；BOM-less UTF-8 中文注释被 ANSI 错读。
+15. PowerShell HTTP 测试发中文 JSON：`Invoke-WebRequest -Body ([Text.Encoding]::UTF8.
+    GetBytes($json))` + `Content-Type: application/json; charset=utf-8`（字符串体 Latin-1
+    会把中文变 `???`，误报 400）。
 
 ---
 

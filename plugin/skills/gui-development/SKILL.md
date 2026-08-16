@@ -26,7 +26,12 @@ lib/serve.js（引擎 HTTP 层，零重写包装 CLI 8 工具）
   └─ 静态托管：STATIC_EXT 白名单 + path.resolve 前缀防穿越
 
 gui/web/（零依赖：index.html + style.css + app.js；主页极简 + 8 高级 Tab，双语 i18n）
+  ├─ 盘符卡片：真实容量 statfsSync + 进度条 + 已用/可用；默认只选 D + 记忆 + 全选/清空
+  ├─ 扫描前范围确认弹窗（把"将扫 X:、Y:"列给用户）+ 报告回显扫描范围 + 取消按钮
+  └─ 高级页：MFT 盘符动态生成、schedule weekly 带 day 下拉、dedup 合并复用 lastScanRoots
 installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺则引导 bootstrapper）
+  ├─ 图标三处接入：csproj ApplicationIcon(app.ico) / iss SetupIconFile / web favicon.svg
+  └─ 构建链 step 0 = scripts/make-icon.ps1（System.Drawing → 多尺寸 PNG → PNG-in-ICO）
 ```
 
 ## 一、目录与角色
@@ -60,6 +65,19 @@ installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺�
    `package.json version`（checksums.txt `version=` 来源）——bump 时一处不漏。
 8. **构建顺序铁律**：改 serve.js/web → 重建 SEA（`scripts/build-sea.ps1`）→ `build-installer.ps1`；
    上传 Release 期间**不要重建源文件**（破坏半传文件）；`gui/stage|publish|dist` 全部 gitignore。
+9. **盘符容量唯一解 = `fs.statfsSync`**：`/api/drives` 返回 `{total,free,avail,used}`。
+   `fs.statSync(root).blocks*512` 是根目录自身块数（显示 24kb 事故根因），严禁再用。
+10. **范围型操作三要件**（扫描/去重/整理）：界面默认只选数据盘并 `localStorage` 记忆 +
+    操作前范围确认弹窗（列出盘/已用/合计）+ 服务端缺省 roots 只回退最近报告
+    `summary.roots`。**禁止默认全选、禁止静默回退全盘**（曾致"以为选 D 实际扫 C+E+F=2.2TB"、
+    dedup 硬链接扫 C:\+D:\）。前端 `syncDriveCards()` 保证卡片视觉态与数组一致。
+11. **PS 5.1 脚本**：`New-Object Type(` 参数列表**跨多行解析失败返回 null**——构造全部
+    单行或 `::new()`；脚本注释保持**全 ASCII**（BOM-less UTF-8 中文被 ANSI 错读）。
+12. **PS 调 API 发中文 JSON**：`-Body ([Text.Encoding]::UTF8.GetBytes($json))` +
+    `Content-Type: application/json; charset=utf-8`（字符串体 Latin-1 把中文变 `???` 假 400）。
+13. **取消与校验**：`POST /api/scan/cancel {job}`；取消测试用临时 report 路径
+    （`body.report=$TEMP\x.json`）防覆盖好报告；发布用 `dist/SHA256SUMS.txt` 是**手工组装**
+    （build-sea 只写 `dist/checksums.txt` + `exe.sha256`）。
 
 ## 三、开发工作流（改前端为例）
 
@@ -78,9 +96,11 @@ installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺�
 
 - ① 原生窗口标题"disk-clean — 磁盘清理与分析"、无黑框、引擎 health OK、静态页 200
 - ② curl 全 API：无 token 401 / 带 token 200 / scan 全程 / 静态托管 200
-- ③ 前端完整渲染：nav/盘符/中文标题/按钮 + **零 JS 错误**（headless 可查）
-- ④ 安装器：静默安装 EXIT=0、产物齐全、启动即用、缺运行时引导
-- ⑤ GitHub 下载 → 校验 → 安装 → 启动全链路（真实用户路径）
+- ③ 前端完整渲染：nav/盘符/真实容量数字/默认选中 D + **零 JS 错误**（headless 可查）
+- ④ **数据正确性三重断言**（真机全量扫 D 验证）：`roots==所选`、`totalBytes ≤ 卷容量`、
+  `categorySum==totalBytes`（0 差）+ 图标三处可见（exe/安装器/favicon）
+- ⑤ 安装器：静默安装 EXIT=0、产物齐全、启动即用、缺运行时引导
+- ⑥ GitHub 下载 → 校验 → 安装 → 启动全链路（真实用户路径）
 
 ## 五、关键文件指针
 
@@ -88,8 +108,9 @@ installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺�
 |---|---|
 | GUI 设计/验收点 | `docs/GUI-PLAN.md` |
 | GUI 制作 SOP | `docs/RELEASE-PLAYBOOK.md §3.5` |
-| GUI 错误清单 | `docs/PROCESS-REVIEW.md §7`（G1–G32 全表） |
-| 壳源码 | `gui/shell/Program.cs`（引擎拉起/日志）、`MainForm.cs`（WebView2/token 注入） |
-| 服务层 | `lib/serve.js`（API 路由/鉴权/扫描 job/提取逻辑） |
-| 安装器 | `installer/disk-clean-ui.iss`（检测/下载引导）、`scripts/build-installer.ps1`（构建链） |
+| GUI 错误清单 | `docs/PROCESS-REVIEW.md §7`（G1–G43 全表） |
+| 壳源码 | `gui/shell/Program.cs`（引擎拉起/日志）、`MainForm.cs`（WebView2/token 注入）、`DiskCleanUi.csproj`（ApplicationIcon） |
+| 服务层 | `lib/serve.js`（API 路由/鉴权/扫描 job/statfsSync/取消/提取逻辑） |
+| 安装器 | `installer/disk-clean-ui.iss`（检测/下载引导/SetupIconFile）、`scripts/build-installer.ps1`（构建链含 step0 图标） |
+| 图标 | `scripts/make-icon.ps1`（生成 app.ico/favicon 源）、`gui/shell/app.ico`、`gui/web/favicon.svg` |
 | 前端 | `gui/web/index.html`（骨架/挂载点）、`app.js`（逻辑/i18n/API 封装）、`style.css`（暗色主题） |

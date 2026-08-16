@@ -77,6 +77,11 @@ var I18N = {
     'home.scanBtn': '开始扫描', 'home.statTotal': '总大小', 'home.statFiles': '文件',
     'home.statDirs': '目录', 'home.statEmpty': '空目录', 'home.statDur': '耗时',
     'home.categories': '类别分布',
+    'confirm.scanTitle': '确认扫描范围', 'confirm.scanHint': '扫描只读，不删除任何文件。',
+    'drive.selectAll': '全选', 'drive.clear': '清空',
+    'scan.cancel': '取消扫描', 'scan.cancelReq': '已请求取消扫描…',
+    'msg.scanCancelled': '扫描已取消（显示部分结果）', 'msg.cancelledBadge': '已取消',
+    'msg.staleStats': '（统计为清理前快照，可再次扫描刷新）',
     'common.cancel': '取消', 'common.confirm': '确认', 'common.run': '执行',
     'common.preview': '预览', 'common.rollback': '回滚', 'common.refresh': '刷新',
     'sugg.organize-folders': '目录整理建议', 'sugg.stale-large': '长期未用大文件',
@@ -97,6 +102,11 @@ var I18N = {
     'home.scanBtn': 'Start Scan', 'home.statTotal': 'Total', 'home.statFiles': 'Files',
     'home.statDirs': 'Dirs', 'home.statEmpty': 'Empty Dirs', 'home.statDur': 'Duration',
     'home.categories': 'Categories',
+    'confirm.scanTitle': 'Confirm scan scope', 'confirm.scanHint': 'Scan is read-only; no files will be deleted.',
+    'drive.selectAll': 'Select all', 'drive.clear': 'Clear',
+    'scan.cancel': 'Cancel scan', 'scan.cancelReq': 'Cancel requested…',
+    'msg.scanCancelled': 'Scan cancelled (partial results shown)', 'msg.cancelledBadge': 'cancelled',
+    'msg.staleStats': '(Stats are a pre-cleanup snapshot; re-scan to refresh)',
     'common.cancel': 'Cancel', 'common.confirm': 'Confirm', 'common.run': 'Run',
     'common.preview': 'Preview', 'common.rollback': 'Rollback', 'common.refresh': 'Refresh',
     'sugg.organize-folders': 'Organize folders', 'sugg.stale-large': 'Stale large files',
@@ -150,52 +160,122 @@ function refreshCurrentView() {
    ========================================================= */
 var selectedDrives = [];
 var scanning = false;
+var lastDrives = [];        // /api/drives 结果缓存（确认弹窗/合计/动态盘符用）
+var currentJobId = null;    // 当前扫描任务（取消用）
+var lastScanRoots = [];     // 最近一次扫描的 roots（dedup/去重复用同一范围）
+var SELECT_KEY = 'dc_selected_drives';
+function saveSelection() { try { localStorage.setItem(SELECT_KEY, JSON.stringify(selectedDrives)); } catch (e) {} }
 
+function driveInfo(drive) {
+  for (var i = 0; i < lastDrives.length; i++) if (lastDrives[i].drive === drive) return lastDrives[i];
+  return null;
+}
+function syncDriveCards() {
+  document.querySelectorAll('.drive-card').forEach(function (card) {
+    card.classList.toggle('selected', selectedDrives.indexOf(card.dataset.drive) >= 0);
+  });
+  var c = $('selCount');
+  if (c) c.textContent = selectedDrives.length ? '已选 ' + selectedDrives.length + ' 个' : '未选择任何磁盘';
+}
 function loadDrives() {
   if (currentView !== 'home') return;
   api('/api/drives').then(function (j) {
+    lastDrives = j.drives || [];
     var grid = $('driveGrid');
     grid.innerHTML = '';
-    j.drives.forEach(function (d) {
+    // 首次启动（无记忆）默认只选 D:（用户指定）；否则沿用上次选择并过滤已失效盘符
+    var saved = null;
+    try { saved = JSON.parse(localStorage.getItem(SELECT_KEY) || 'null'); } catch (e) { saved = null; }
+    if (!saved) {
+      selectedDrives = lastDrives.some(function (d) { return d.drive === 'D:'; }) ? ['D:'] : (lastDrives.length ? [lastDrives[0].drive] : []);
+    } else {
+      var exist = {};
+      lastDrives.forEach(function (d) { exist[d.drive] = true; });
+      selectedDrives = saved.filter(function (d) { return exist[d]; });
+    }
+    saveSelection();
+    lastDrives.forEach(function (d) {
       var card = el('div', 'drive-card');
-      card.innerHTML = '<div class="drive-letter">' + esc(d.drive) + '</div><div class="drive-size">' + fmtBytes(d.bytes) + '</div>';
+      card.dataset.drive = d.drive;
+      if (selectedDrives.indexOf(d.drive) >= 0) card.classList.add('selected');
+      var used = d.used || 0, total = d.total || 0;
+      var pct = total > 0 ? Math.round((used / total) * 100) : 0;
+      var alert = total > 0 && pct >= 90 ? '<span class="drive-alert" title="剩余空间不足 10%">!</span>' : '';
+      card.innerHTML = '<div class="drive-head"><span class="drive-letter">' + esc(d.drive) + '</span>' + alert + '</div>' +
+        '<div class="drive-bar"><div class="drive-bar-fill' + (pct >= 90 ? ' warn' : '') + '" style="width:' + Math.min(100, pct) + '%"></div></div>' +
+        '<div class="drive-size">已用 ' + fmtBytes(used) + '<br>共 ' + fmtBytes(total) + '</div>' +
+        '<div class="drive-free">可用 ' + fmtBytes(d.avail) + '</div>';
       card.addEventListener('click', function () {
         card.classList.toggle('selected');
         var idx = selectedDrives.indexOf(d.drive);
         if (idx >= 0) selectedDrives.splice(idx, 1);
         else selectedDrives.push(d.drive);
+        saveSelection();
       });
       grid.appendChild(card);
     });
-    // pre-select working drives (skip empty)
-    if (selectedDrives.length === 0 && j.drives.length > 0) {
-      j.drives.forEach(function (d) { selectedDrives.push(d.drive); });
-      grid.querySelectorAll('.drive-card').forEach(function (c) { c.classList.add('selected'); });
-    }
+    syncDriveCards();
   }).catch(function (e) { toast(e.message, 'err'); });
 }
+$('selAllBtn').addEventListener('click', function () {
+  selectedDrives = lastDrives.map(function (d) { return d.drive; });
+  saveSelection();
+  syncDriveCards();
+});
+$('selNoneBtn').addEventListener('click', function () {
+  selectedDrives = [];
+  saveSelection();
+  syncDriveCards();
+});
 
 $('scanBtn').addEventListener('click', function () {
   if (scanning) return;
   if (selectedDrives.length === 0) { toast(t('msg.noDrives'), 'err'); return; }
   var exclude = $('excludeInput').value.split(';').map(function (s) { return s.trim(); }).filter(Boolean);
-  startScan(selectedDrives.slice(), exclude);
+  // 扫描前确认：明确列出将扫描的磁盘与合计容量（防止"以为扫 A 实际扫 B"）
+  var rows = selectedDrives.map(function (dr) {
+    var info = driveInfo(dr);
+    return info
+      ? esc(dr) + ' <span class="muted">已用 ' + fmtBytes(info.used) + ' / ' + fmtBytes(info.total) + '（可用 ' + fmtBytes(info.avail) + '）</span>'
+      : esc(dr);
+  }).join('<br>');
+  var sumTotal = 0, sumAvail = 0;
+  selectedDrives.forEach(function (dr) {
+    var info = driveInfo(dr);
+    if (info) { sumTotal += info.total; sumAvail += info.avail; }
+  });
+  var extra = exclude.length ? '<p class="muted">排除路径：' + esc(exclude.join('; ')) + '</p>' : '';
+  confirmModal(t('confirm.scanTitle'),
+    '<p>将扫描以下磁盘：</p><p class="mono-list">' + rows + '</p>' +
+    '<p class="muted">合计 ' + fmtBytes(sumTotal) + '，可用 ' + fmtBytes(sumAvail) + '。' + t('confirm.scanHint') + '</p>' + extra,
+    t('home.scanBtn'), function () { startScan(selectedDrives.slice(), exclude); }, false);
+});
+$('cancelScanBtn').addEventListener('click', function () {
+  if (!currentJobId) return;
+  api('/api/scan/cancel', { job: currentJobId }).then(function () {
+    toast(t('scan.cancelReq'), '');
+  }).catch(function (e) { toast(e.message, 'err'); });
 });
 
 function startScan(roots, exclude) {
   scanning = true;
+  lastScanRoots = roots.slice();
+  currentJobId = null;
   $('scanBtn').disabled = true;
   $('scanBtn').textContent = t('scan.scanning');
   $('scanProgress').classList.remove('hidden');
+  $('cancelScanBtn').classList.remove('hidden');
   $('homeReport').classList.add('hidden');
   setProgress(0, '…');
   api('/api/scan', { roots: roots, exclude: exclude, lang: LANG === 'en' ? 'en' : 'zh' }).then(function (j) {
+    currentJobId = j.jobId;
     return pollScan(j.jobId);
   }).catch(function (e) {
     toast(e.message, 'err');
     scanning = false;
     $('scanBtn').disabled = false;
     $('scanBtn').textContent = t('home.scanBtn');
+    $('cancelScanBtn').classList.add('hidden');
   });
 }
 
@@ -219,7 +299,10 @@ function pollScan(jobId) {
     scanning = false;
     $('scanBtn').disabled = false;
     $('scanBtn').textContent = t('home.scanBtn');
+    $('cancelScanBtn').classList.add('hidden');
+    currentJobId = null;
     setProgress(100, t('scan.finish'));
+    if (j.report && j.report.summary && j.report.summary.status === 'cancelled') toast(t('msg.scanCancelled'), '');
     renderReport(j.report);
   });
 }
@@ -227,6 +310,9 @@ function pollScan(jobId) {
 function renderReport(rep) {
   $('homeReport').classList.remove('hidden');
   var s = rep.summary || {};
+  var rangeTxt = (s.roots || []).join('、') || '—';
+  $('scanRange').innerHTML = '<span class="muted">扫描范围：</span>' + esc(rangeTxt) +
+    (s.status === 'cancelled' ? ' <span class="badge-warn">' + esc(t('msg.cancelledBadge')) + '</span>' : '');
   $('statTotal').textContent = fmtBytes(s.totalBytes);
   $('statFiles').textContent = s.totalFiles || 0;
   $('statDirs').textContent = s.totalDirs || 0;
@@ -367,7 +453,7 @@ function cleanByType(type, label) {
       confirmModal('确认执行 ' + (label || type), '<p>' + esc(note) + '</p><p class="muted">再次确认后才会真正执行。全部操作写入审计日志。</p>', t('common.run'), function () {
         api('/api/clean', { type: type, paths: [], dryRun: false }).then(function () {
           toast('✔ 清理完成', 'ok');
-          toast('（已写入审计日志，可在“审计”页查看）', '');
+          toast(t('msg.staleStats'), '');
         }).catch(function (e) { toast('✗ ' + e.message, 'err'); });
       }, false);
     }).catch(function (e) { toast(e.message, 'err'); });
@@ -502,7 +588,9 @@ function renderDedup() {
 
   scanBtn.onclick = function () {
     box.appendChild(el('div', 'notice', '全盘哈希扫描（排除系统/程序目录，可能耗时）…'));
-    api('/api/dedup', { roots: selectedDrives.length ? selectedDrives : undefined, hardlink: false }).then(function (j) {
+    // 复用最近一次主页扫描的范围；未扫过则交给服务端明确报错提示
+    var roots = lastScanRoots.length ? lastScanRoots.slice() : undefined;
+    api('/api/dedup', { roots: roots, hardlink: false }).then(function (j) {
       dedupGroups = j.groups || [];
       box.innerHTML = '';
       box.appendChild(row);
@@ -524,8 +612,12 @@ function renderDedup() {
 
   hardBtn.onclick = function () {
     if (!dedupGroups) { toast('先运行扫描', 'err'); return; }
-    confirmModal('硬链接合并', '<p>保留每组 1 个原件，其余转为硬链接（同卷内），可回滚。释放约 ' + fmtBytes(dedupGroups.reduce(function (a, g) { return a + (g.size || 0) * Math.max(0, (g.files || []).length - 1); }, 0)) + '。</p>', t('common.run'), function () {
-      api('/api/dedup', { roots: [], hardlink: true, dryRun: false }).then(function (j) {
+    var saveBytes = dedupGroups.reduce(function (a, g) { return a + (g.size || 0) * Math.max(0, (g.files || []).length - 1); }, 0);
+    var rangeTxt = lastScanRoots.length ? lastScanRoots.join('、') : '（未知，请先回主页扫描）';
+    confirmModal('硬链接合并（真实执行，非预览）', '<p>范围：<b>' + esc(rangeTxt) + '</b></p>' +
+      '<p>保留每组 1 个原件，其余转为硬链接（同卷内），可回滚。释放约 ' + fmtBytes(saveBytes) + '。</p>' +
+      '<p class="muted">范围为最近一次主页扫描的磁盘；如需限定范围请先回主页选择后再扫描。</p>', t('common.run'), function () {
+      api('/api/dedup', { roots: lastScanRoots.slice(), hardlink: true, dryRun: false }).then(function (j) {
         toast('✔ 合并 ' + j.hardlinked + ' 个，失败 ' + (j.failed || 0) + (j.dryRun ? '（预览）' : ''), 'ok');
       }).catch(function (e) { toast('✗ ' + e.message, 'err'); });
     });
@@ -544,7 +636,7 @@ function renderDedup() {
 function renderQuota() {
   var box = $('tab-quota');
   box.innerHTML = '<div class="notice">读取配额数据（MFT 直读，需管理员）…</div>';
-  var drive = selectedDrives.length ? selectedDrives[0] : 'C:';
+  var drive = selectedDrives.length ? selectedDrives[0] : (lastDrives.length ? lastDrives[0].drive : 'C:');
   api('/api/quota', { drive: drive }).then(function (j) {
     box.innerHTML = '';
     var total = j.users.reduce(function (s, u) { return s + u.bytes; }, 0) + (j.systemBytes || 0);
@@ -571,10 +663,20 @@ function renderMft() {
   box.innerHTML = '';
   var row = el('div', 'row gap');
   var driveSel = el('select', 'input');
-  ['C:', 'D:', 'E:', 'F:'].forEach(function (d) { var o = el('option', null, d); o.value = d; driveSel.appendChild(o); });
   var goBtn = el('button', 'btn primary', 'MFT 快速扫描');
   row.appendChild(driveSel); row.appendChild(goBtn);
   box.appendChild(row);
+  var fillDrives = function (list) {
+    driveSel.innerHTML = '';
+    (list.length ? list : ['C:']).forEach(function (d) {
+      var drive = typeof d === 'string' ? d : d.drive;
+      var o = el('option', null, drive);
+      o.value = drive;
+      driveSel.appendChild(o);
+    });
+  };
+  if (lastDrives.length) fillDrives(lastDrives);
+  else api('/api/drives').then(function (j) { lastDrives = j.drives || []; fillDrives(lastDrives); }).catch(function () { fillDrives(['C:']); });
 
   goBtn.onclick = function () {
     box.appendChild(el('div', 'notice', 'MFT 直读扫描中（约 8 倍速，秒级）…'));
@@ -615,13 +717,17 @@ function renderSchedule() {
     var nameInput = mkInput('任务名', 'my-scan');
     var whenSel = el('select', 'input');
     [['daily', '每日'], ['weekly', '每周'], ['once', '一次']].forEach(function (o) { var opt = el('option', null, o[1]); opt.value = o[0]; whenSel.appendChild(opt); });
+    var daySel = el('select', 'input');
+    ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'].forEach(function (d) { var opt = el('option', null, d); opt.value = d; daySel.appendChild(opt); });
+    daySel.style.display = 'none';
+    whenSel.addEventListener('change', function () { daySel.style.display = whenSel.value === 'weekly' ? '' : 'none'; });
     var timeInput = mkInput('时间 HH:MM', '03:00');
     var rootsInput = mkInput('扫描根（; 分隔）', 'C:\\;D:\\');
     var addBtn = el('button', 'btn primary', '添加');
-    [nameInput, whenSel, timeInput, rootsInput, addBtn].forEach(function (n) { row.appendChild(n); });
+    [nameInput, whenSel, daySel, timeInput, rootsInput, addBtn].forEach(function (n) { row.appendChild(n); });
     addCard.appendChild(row);
     addBtn.onclick = function () {
-      api('/api/schedule', { action: 'add', name: nameInput.value.trim(), when: whenSel.value, time: timeInput.value, roots: rootsInput.value.split(';').map(function (s) { return s.trim(); }).filter(Boolean) }).then(function (r) {
+      api('/api/schedule', { action: 'add', name: nameInput.value.trim(), when: whenSel.value, day: whenSel.value === 'weekly' ? daySel.value : '', time: timeInput.value, roots: rootsInput.value.split(';').map(function (s) { return s.trim(); }).filter(Boolean) }).then(function (r) {
         toast('✔ ' + (r.note || '已添加'), 'ok');
         renderSchedule();
       }).catch(function (e) { toast(e.message, 'err'); });

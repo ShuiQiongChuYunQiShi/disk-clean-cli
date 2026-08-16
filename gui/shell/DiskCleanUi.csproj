@@ -9,13 +9,14 @@
     <AssemblyName>disk-clean-ui</AssemblyName>
     <RootNamespace>DiskCleanUi</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
     <!-- Framework-dependent single exe (small shell; runtime bootstrapped by installer if missing) -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>0.3.0</Version>
-    <FileVersion>0.3.0</FileVersion>
-    <InformationalVersion>0.3.0</InformationalVersion>
+    <Version>0.3.1</Version>
+    <FileVersion>0.3.1</FileVersion>
+    <InformationalVersion>0.3.1</InformationalVersion>
     <!-- WebView2 package added via: dotnet add package Microsoft.Web.WebView2 -->
   </PropertyGroup>
 

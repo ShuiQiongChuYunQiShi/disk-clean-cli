@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>disk-clean</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -46,6 +47,11 @@
 
       <div class="card">
         <div class="card-title" data-i18n="home.drives">选择要扫描的磁盘</div>
+        <div class="row gap drive-tools">
+          <button id="selAllBtn" class="btn small" data-i18n="drive.selectAll">全选</button>
+          <button id="selNoneBtn" class="btn small" data-i18n="drive.clear">清空</button>
+          <span class="muted" id="selCount"></span>
+        </div>
         <div id="driveGrid" class="drive-grid"></div>
         <div class="row gap">
           <input id="excludeInput" class="input grow" placeholder="排除路径（分号分隔，可选）" data-i18n-ph="home.exclude">
@@ -53,11 +59,15 @@
         </div>
         <div id="scanProgress" class="progress-wrap hidden">
           <div class="progress-track"><div class="progress-fill" id="scanFill" style="width:0%"></div></div>
-          <div class="progress-text" id="scanProgressText"></div>
+          <div class="row gap progress-row">
+            <div class="progress-text grow" id="scanProgressText"></div>
+            <button id="cancelScanBtn" class="btn small hidden" data-i18n="scan.cancel">取消扫描</button>
+          </div>
         </div>
       </div>
 
       <div id="homeReport" class="hidden">
+        <div id="scanRange" class="scan-range"></div>
         <div class="row gap wrap">
           <div class="stat-card"><div class="stat-num" id="statTotal">-</div><div class="stat-label" data-i18n="home.statTotal">总大小</div></div>
           <div class="stat-card"><div class="stat-num" id="statFiles">-</div><div class="stat-label" data-i18n="home.statFiles">文件</div></div>

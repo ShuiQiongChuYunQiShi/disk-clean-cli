@@ -59,6 +59,14 @@
 - 安装器：框架依赖 + 缺则引导 bootstrapper；检测用文件夹探测（FindFirst 8.0.*）而非注册表。
 - 构建顺序铁律：改 serve.js → 重建 SEA → 再组装安装器；`scripts/build-installer.ps1` 固化全链。
 - 验证链：API 冒烟 → Edge headless=`--headless=new --user-data-dir`（旧模式空输出）→ 静默安装 → GitHub 下载 sha 校验 → 启动 → 健康 → 页面 200。
+- v0.3.1 增补：
+  - **盘符容量唯一解 = `fs.statfsSync`**（`total/free/avail/used`）；`statSync(root).blocks` 是根目录自身块数（24kb 事故），禁。
+  - **范围型操作铁律**：扫描/去重缺省 roots 只回退最近报告 `summary.roots`，绝不静默全盘；前端默认只选 D + 记忆 + 扫描前范围确认弹窗 + 报告回显范围。
+  - **图标三处接入**：`scripts/make-icon.ps1`（构建链 step 0）→ csproj ApplicationIcon / iss SetupIconFile / web favicon.svg。
+  - **PS 5.1 构造调用单行或 `::new()` + 脚本全 ASCII 注释**（New-Object 跨行解析失败；UTF-8 中文注释被 ANSI 错读）。
+  - PS 调 API 发中文 JSON 用 `UTF8.GetBytes($json)` 字节体（字符串体 Latin-1 中文变 `???` 假 400）。
+  - `dist/SHA256SUMS.txt` 是**发布时手工组装**（build-sea 只写 `dist/checksums.txt` + `exe.sha256`），发布前重算。
+  - 数据正确性三重断言：`roots==所选`、`totalBytes ≤ 卷容量`、`categorySum==totalBytes`（0 差）。
 
 ## 编码与 PowerShell 铁律（每题必查）
 

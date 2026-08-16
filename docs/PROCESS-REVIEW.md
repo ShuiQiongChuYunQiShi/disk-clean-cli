@@ -187,6 +187,30 @@
 | G32 | E2E 后遗留进程/目录 | 测试进程未收尾 | Start-Process 记录 PID → 结束 → 删测试目录 |
 | G33 | `Copy-Item -Recurse -Force` 到已存在目录变成**嵌套复制** | Copy-Item 目录语义：目标已存在时并入子目录 | 文件级复制（`Copy-Item src\SKILL.md dst\SKILL.md -Force`）；或先删目标目录再复制 |
 
+### 7.2 v0.3.1 修复迭代复盘（用户反馈回归 → 全量验证）
+
+用户报告：「首页容量 24kb 对不上 / 默认全选 / 选中 D 却扫出 2.2TB（D 才 700GB）/ 无图标」。
+修复思路：不猜 → 读 `~/.disk-clean/report.json` 实锤 → 修 serve 层 → 前端改交互 → 图标管线 → 开发态真机四层回归。
+
+| # | 问题 | 根因 | 修复 |
+|---|------|------|------|
+| G34 | 首页盘符容量显示 24kb | `listDrives` 用 `fs.statSync(root).blocks*512`，那是**根目录自身占用的块数**（几十块=24KB），与磁盘容量无关 | `fs.statfsSync` → `bsize*blocks/bfree/bavail` 真实卷容量；实测 D=704GB/可用 133GB 与用户一致 |
+| G35 | "选中 D 却扫出 2.2TB（D 才 700GB）" | **默认全选 + 点击=切换**：点 D 反而取消 D，实际扫了 C+E+F。report.json 实锤 roots=[C:,E:,F:]，totalBytes=2.27TB（三盘合计），并非 D 超容量 | 首次默认只选 D + localStorage 记忆上次选择 + 全选/清空按钮 + **扫描前确认弹窗**（列出盘+已用/合计）+ 报告显示扫描范围；D 全量重扫 totalBytes=587.26GB ✅ |
+| G36 | 去重"硬链接合并"空 roots | 前端传 `roots:[]` → 服务端回退扫 `C:\；D:\` 全盘，与预览范围不一致 | 缺省改回退最近报告 `summary.roots`；无报告则 400 要求显式传入；前端复用 lastScanRoots 并在确认弹窗显示范围 |
+| G37 | MFT 页盘符硬编码 `['C:','D:','E:','F:']` | 写死列表 | 从 `/api/drives` 动态生成 |
+| G38 | 计划任务"每周"必失败 | weekly 需 `day`，前端无输入 → 服务端 400 | 加 MON..SUN 下拉（切 weekly 显示） |
+| G39 | 图标脚本构造失败 | PS 5.1 `New-Object Type(` 参数列表**跨多行解析失败返回 null**；BOM-less UTF-8 中文注释被按 ANSI 错读 | 全 ASCII 注释 + 全部 `::new()` 单行构造；沉淀 `scripts/make-icon.ps1`（SVG 概念→System.Drawing→多尺寸 PNG→PNG-in-ICO） |
+| G40 | organize apply 400（测试期假警报） | PS 5.1 `Invoke-WebRequest -Body 字符串` 默认 Latin-1 编码，中文路径变 `???` | 测试用 `[Text.Encoding]::UTF8.GetBytes($json)` 字节体；产品（fetch UTF-8）无此问题 |
+| G41 | 主页卡片视觉选中态与实际不一致 | `loadDrives` 重建卡片未按 `selectedDrives` 恢复样式（刷新后看到"没选中"但数组有值） | `syncDriveCards()` 统一同步样式+计数 |
+| G42 | 扫描无取消入口 | serve 层无中断 API | `POST /api/scan/cancel`（SIGTERM→engine cancelled）+ 前端取消按钮；**取消测试必须用临时 report 路径**，否则覆盖好报告 |
+| G43 | 数据正确性验证缺方法 | — | 三重断言：`roots==所选`；`totalBytes ≤ 卷容量`；`categorySum==totalBytes`（D 全量 0 差）。D：138.2 万文件 / 19.7 万目录 / 587.26GB ✅ |
+
+好点（继续沿用）：
+- **用报告文件实证**定位"2.2TB"真相（不猜、不甩锅给容量算法）；`statfsSync` 实测与用户口述吻合。
+- 开发态 `node bin/disk-clean.js serve` 直跑：API 矩阵（15+ 项）+ **真机 D 全量扫描** + headless DOM/console 校验四层组合，覆盖数据链路与渲染。
+- 破坏性操作（clean/organize/dedup）全部走 dryRun 预览 + 双确认，回归只做预览，不动真数据。
+- 取消/未知任务/已完成任务三态 API 契约全部验证（done 任务返回 note、未知 404）。
+
 ### 7.3 防复发要点（GUI 专项）
 
 1. **服务层第一坑**：CLI 位置参数 vs flag —— spawn 前确认参数语义（`serve` 不是 `--serve`）。
@@ -196,3 +220,8 @@
 4. **C#**：Nullable disable 无 `?`、GetArg 空串、ProcessStartInfo 用 Arguments、改后立即 build。
 5. **Inno Setup**：函数先声明、DownloadTemporaryFile 4 参裸名、FindFirst 用 TFindRec、检测用文件夹。
 6. **验证**：headless 必须 `--headless=new`；E2E 前清日志；发布判据 = GitHub 下载→sha→安装→启动→健康。
+7. **盘符容量**：一律 `fs.statfsSync`（`bsize*blocks/bfree/bavail`）；绝不 `statSync(root).blocks`（那是目录自身块数）。
+8. **范围型操作铁律**：扫描/去重/整理任何"作用域"都必须有范围确认与回显；服务端缺省范围只能取最近报告 `summary.roots`，**绝不静默回退全盘**。
+9. **PS 5.1 脚本**：所有构造调用单行 + 脚本全 ASCII 注释（BOM-less UTF-8 中文会被 ANSI 错读）；PowerShell 调 API 发 JSON 必须 `UTF8.GetBytes` 字节体。
+10. **图标管线**：`scripts/make-icon.ps1` 是构建链 step 0；三处接入 = csproj `ApplicationIcon` + iss `SetupIconFile` + web `favicon.svg`（serve 静态白名单已含 .ico/.svg）。
+11. **`dist/SHA256SUMS.txt` 是发布时组装的**：build-sea 只写 `dist/checksums.txt` 与 `exe.sha256`；release 前用新引擎 sha + setup sha/size 重算并双向核对。

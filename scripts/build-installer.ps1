@@ -16,6 +16,10 @@ if (-not (Test-Path $iscc)) {
   $iscc = $cand.FullName
 }
 
+Write-Host "==> 0/5 regenerate app icon (gui\shell\app.ico + favicon source) ..." -ForegroundColor Cyan
+powershell -ExecutionPolicy Bypass -File scripts\make-icon.ps1
+if ($LASTEXITCODE -ne 0) { throw "make-icon failed" }
+
 Write-Host "==> 1/5 publish C# shell (framework-dependent single exe) ..." -ForegroundColor Cyan
 dotnet publish gui\shell\DiskCleanUi.csproj -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o $stage
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
