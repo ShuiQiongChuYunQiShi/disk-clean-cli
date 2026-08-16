@@ -1,5 +1,7 @@
 # disk-clean
 
+> **English** | [**简体中文**](README.zh-CN.md)
+
 **Windows disk cleanup & analysis CLI** — scan, classify, suggest, safely organize (with automatic shortcut fixing) and clean your disks. Zero runtime dependencies, works offline.
 
 > ⚠️ Safety first: every destructive command is **dry-run by default**. Nothing is moved or deleted unless you pass `--yes`. Moves are logged and rollback-able.
@@ -29,7 +31,7 @@
 
 ### Option A — single EXE (recommended)
 
-Download `disk-clean-win-x64.exe` from [Releases](../../releases) — no Node.js required.
+Download `disk-clean-win-x64.exe` from [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) — no Node.js required.
 
 ```powershell
 .\disk-clean-win-x64.exe scan D:\
