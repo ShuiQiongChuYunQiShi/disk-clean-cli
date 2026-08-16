@@ -16,7 +16,10 @@ jobs:
           node-version: 22
 
       - name: Syntax check
-        run: node --check bin/disk-clean.js; node --check lib/engine.js; node --check lib/organize.js; node --check lib/clean.js; node --check lib/audit.js
+        shell: pwsh
+        run: |
+          Get-ChildItem bin,lib,scripts -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
+          node --check test\engine-smoke.js
 
       - name: Smoke test
         run: node test/engine-smoke.js

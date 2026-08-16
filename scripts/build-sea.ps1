@@ -2,11 +2,14 @@
 # 前置: npm install --save-dev esbuild postject
 # 产出: dist\disk-clean-win-x64.exe + .sha256 + checksums.txt
 param(
-  [string]$Version = "0.1.0"
+  [string]$Version = ""
 )
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+if (-not $Version) {
+  try { $Version = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version } catch { $Version = "0.0.0" }
+}
 
 Write-Host "==> 1/4 esbuild bundle ..." -ForegroundColor Cyan
 npx esbuild bin\disk-clean.js --bundle --platform=node --format=cjs --outfile=dist\sea-bundle.js
