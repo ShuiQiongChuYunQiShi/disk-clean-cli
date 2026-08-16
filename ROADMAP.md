@@ -181,17 +181,20 @@ Commands:
 - 输出：健康等级（健康/注意/警告/危险）+ Markdown/JSON 报告。
 - 集成：scan 报告可选包含 health 摘要。
 
-**验收**：真实机器上输出每块盘的 SMART 关键指标与健康等级。
+**验收（2026-08-16 实测）**：
+- ✅ `disk-clean health`：读取所有物理盘 SMART（Get-PhysicalDisk + Get-StorageReliabilityCounter：温度/Wear/通电小时/读写错误），健康分级（健康/注意/警告/危险 + 具体问题列表）。
+- ✅ 本机两块 SSD 实测：JZ-SSD2T-XW 健康（39°C/寿命 0%）、J.ZAO KP SERIES 2TB SSD 注意（57°C 超 55°C 阈值，提示"温度 57°C"）。
+- ✅ 结果落盘 `~/.disk-clean/health.json`；PS 脚本走临时 .ps1（`-File` 避免多行 `-Command` 传参问题）。
 
 ---
 
 ## 9. Phase 7 — SMART / SSD 健康（优化⑥）
 
-- `disk-clean health`：读取各盘 SMART 数据：
+- ✅ `disk-clean health`：读取各盘 SMART 数据：
   - HDD：Reallocated Sectors、Pending Sectors、Power-On Hours、温度（wmic / PowerShell Get-PhysicalDisk）
   - SSD：SSD Wear（Percent Lifetime Used，Get-PhysicalDisk 的 Wear）
-- 输出：健康等级（健康/注意/警告/危险）+ Markdown/JSON 报告。
-- 集成：scan 报告可选包含 health 摘要。
+- ✅ 输出：健康等级（健康/注意/警告/危险）+ 问题列表 + JSON 落盘。
+- ⬜ 集成：scan 报告可选包含 health 摘要（v1.1）。
 
 **验收**：真实机器上输出每块盘的 SMART 关键指标与健康等级。
 
@@ -288,6 +291,7 @@ Commands:
 | Phase 4 | 2026-08-16 | 规则配置文件 config.json：阈值覆盖 + exclude 白名单 + `config` 子命令(show/set/reset/path)；阈值生效对照验证通过 |
 | Phase 5 | 2026-08-16 | 定时任务 schedule：add/run/list/remove + schtasks 注册 + 报告归档；node 与 SEA exe 双环境端到端触发验证通过 |
 | Phase 6 | 2026-08-16 | MFT 直读快速扫描（实验）：runlist 解析 8 个碎片 run + FILE_NAME 长名优先 + 路径重建 + alloc/real 合理性 size 规则；`mftscan` 命令 5.5-8.4s vs 常规 43.1s（~8x），文件数 99%/目录 100% 一致 |
+| Phase 7 | 2026-08-16 | SMART/SSD 健康：`health` 命令（Get-PhysicalDisk + StorageReliabilityCounter：温度/Wear/通电/读写错误），健康分级（健康/注意/警告/危险）；两块 SSD 实测通过 |
 | Phase 5 | ⬜ | — |
 | Phase 6 | ⬜ | — |
 | Phase 7 | ⬜ | — |

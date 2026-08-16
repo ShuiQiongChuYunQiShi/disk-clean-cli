@@ -15,6 +15,7 @@ const clean = require('../lib/clean.js');
 const configLib = require('../lib/config.js');
 const scheduleLib = require('../lib/schedule.js');
 const mftLib = require('../lib/mftscan.js');
+const healthLib = require('../lib/health.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -325,6 +326,29 @@ async function cmdAudit() {
   return 0;
 }
 
+// ---------- 命令: health（SMART/SSD 健康） ----------
+async function cmdHealth() {
+  console.log(col(C.cyan, '▶ 读取磁盘健康数据...'));
+  const r = healthLib.check();
+  if (!r.ok) return fail(r.error);
+  for (const d of r.disks) {
+    const lv = d.grade;
+    const lvCol = lv === '健康' ? C.green : lv === '注意' ? C.blue : lv === '警告' ? C.yellow : C.red;
+    console.log('');
+    console.log('  ' + col(C.bold, d.name) + '  [' + col(lvCol, lv) + ']  ' + d.media + '  ' + (d.size ? fmtBytes(d.size) : '?'));
+    console.log('    状态: ' + d.health + ' / ' + d.op +
+      (d.temp !== null ? '  温度: ' + d.temp + '°C' : '') +
+      (d.wear !== null ? '  寿命已用: ' + d.wear + '%' : '') +
+      (d.poh !== null ? '  通电: ' + d.poh + 'h' : ''));
+    if (d.readErr !== null || d.writeErr !== null) {
+      console.log('    读错误: ' + (d.readErr === null ? 'N/A' : d.readErr) + '  写错误: ' + (d.writeErr === null ? 'N/A' : d.writeErr));
+    }
+    for (const iss of d.issues) console.log('    ' + col(C.yellow, '⚠ ' + iss));
+  }
+  console.log(col(C.gray, '  数据: ' + r.file));
+  return 0;
+}
+
 // ---------- 命令: mftscan（NTFS $MFT 直读快速扫描，实验功能） ----------
 async function cmdMftScan(o) {
   const drive = o._[0] || 'D:';
@@ -463,6 +487,7 @@ function help() {
   console.log('  config                     查看/设置规则配置 (show|set|reset|path)');
   console.log('  schedule                   定时扫描: add|run|list|remove (仅扫描+报告, 不做清理)');
   console.log('  mftscan <盘符>             实验: NTFS MFT 直读快速扫描 (需管理员, ~8x 提速)');
+  console.log('  health                     磁盘健康检查 (SMART/SSD Wear/温度)');
   console.log('');
   console.log('通用选项:');
   console.log('  --report <file>  指定报告文件位置');
@@ -495,6 +520,7 @@ async function main() {
       case 'config': return await cmdConfig(o);
       case 'schedule': return await cmdSchedule(o);
       case 'mftscan': return await cmdMftScan(o);
+      case 'health': return await cmdHealth();
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }
