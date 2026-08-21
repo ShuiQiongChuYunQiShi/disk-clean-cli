@@ -3,7 +3,7 @@
 #   e.g. powershell -File scripts/publish-release.ps1 0.4.0
 # Requires: $env:GH_TOKEN (fine-grained PAT), gh at C:\Program Files\GitHub CLI\gh.exe or in PATH
 param([string]$ver)
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 if (-not $ver) { Write-Error "Usage: publish-release.ps1 <ver>  e.g. 0.4.0"; exit 1 }
 if ($ver -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Version must be x.y.z"; exit 1 }
 
@@ -15,11 +15,14 @@ if (-not $env:GH_TOKEN) { Write-Error "GH_TOKEN not set"; exit 1 }
 
 # 1) Ensure tag exists and pushed
 $tag = "v$ver"
-$hasTag = (git tag -l $tag).Trim()
+$hasTag = ((git tag -l $tag) | Out-String).Trim()
 if (-not $hasTag) {
   Write-Output "Creating tag $tag..."
-  git tag $tag
+  $oldEAP = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  git tag $tag 2>&1 | Out-String | Write-Output
   git push origin $tag 2>&1 | Out-String | Write-Output
+  $ErrorActionPreference = $oldEAP
+  if ($LASTEXITCODE -ne 0) { Write-Error "git push tag failed"; exit 1 }
 }
 
 # 2) Create Release (non-draft) if not exists
