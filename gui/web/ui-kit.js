@@ -57,9 +57,8 @@
     return wrap;
   }
 
-  // Health card for a single disk
-  function healthCard(d, t) {
-    // t is translation function, fallback to key
+  // Health card for a single disk (d may have trend array passed as 3rd arg)
+  function healthCard(d, t, trendArr) {
     var tr = t || function(k){ return k; };
     var gradeClass = d.grade === 'Healthy' || d.grade === '健康' ? 'grade-ok' : d.grade === 'Notice' || d.grade === '注意' ? 'grade-note' : d.grade === 'Warning' || d.grade === '警告' ? 'grade-warn' : 'grade-danger';
     var chips = [d.media, d.bus, d.size ? fmtBytes(d.size) : null, d.firmware ? 'FW ' + d.firmware : null].filter(Boolean)
@@ -83,14 +82,41 @@
       });
       volHtml += '</table>';
     }
+    var trendHtml = '';
+    if (trendArr && trendArr.length >= 2) {
+      var temps = trendArr.map(function(x){ return x.temp; });
+      var wears = trendArr.map(function(x){ return x.wear; });
+      var errs = trendArr.map(function(x){ return (x.readErrUncorr||0)+(x.writeErrUncorr||0); });
+      trendHtml = '<div class="muted" style="margin-top:8px">Trend (last ' + trendArr.length + '): ' +
+        'Temp ' + sparkline(temps, '#ef5350') + ' ' +
+        'Wear ' + sparkline(wears, '#f4b740') + ' ' +
+        'Err ' + sparkline(errs, '#ab7bff') + '</div>';
+    }
     var cardEl = el('div', 'health-card');
     cardEl.innerHTML = '<div class="health-grade ' + gradeClass + '">' + esc(d.grade || '?') + '</div>' +
       '<div class="grow"><div><b>' + esc(d.name) + '</b> ' + chips + '</div>' +
       (d.op && d.op !== 'OK' ? '<div class="issue">Status: ' + esc(d.op) + '</div>' : '') +
       (d.issues && d.issues.length ? '<div class="issue">! ' + d.issues.map(esc).join('; ') + '</div>' : '') +
       '<div class="gauges">' + gauges + '</div>' +
+      trendHtml +
       '<div class="muted">' + errLine + '</div>' + volHtml + '</div>';
     return cardEl;
+  }
+
+  function sparkline(values, color) {
+    if (!values || values.length < 2) return '<span class="muted" style="font-size:11px">-</span>';
+    var w = 80, h = 24, pad = 2;
+    var nums = values.filter(function(v){ return typeof v === 'number'; });
+    if (nums.length < 2) return '<span class="muted" style="font-size:11px">-</span>';
+    var min = Math.min.apply(null, nums), max = Math.max.apply(null, nums);
+    if (min === max) { min -= 1; max += 1; }
+    var pts = values.map(function(v, i){
+      if (typeof v !== 'number') return null;
+      var x = pad + (i / (values.length - 1)) * (w - pad*2);
+      var y = h - pad - ((v - min) / (max - min)) * (h - pad*2);
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).filter(Boolean).join(' ');
+    return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + ' ' + h + '" style="vertical-align:middle"><polyline fill="none" stroke="' + (color||'#4d9fff') + '" stroke-width="1.5" points="' + pts + '"/></svg>';
   }
 
   // Overall health banner
@@ -116,6 +142,7 @@
     fmtBytes: fmtBytes,
     fmtNum: fmtNum,
     gaugeHtml: gaugeHtml,
+    sparkline: sparkline,
     card: card,
     itemList: itemList,
     healthCard: healthCard,

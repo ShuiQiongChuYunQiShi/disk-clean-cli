@@ -30,6 +30,7 @@ module.exports = {
     const FIX_FILE = DSK_DIR + BS + '.dsk-fix-shortcuts.json'
     const RESTORE_FILE = DSK_DIR + BS + '.dsk-restore-shortcuts.json'
     const HEALTH_FILE = DSK_DIR + BS + '.dsk-health.json'
+    const HEALTH_HISTORY_FILE = DSK_DIR + BS + '.dsk-health-history.json'
     const DEDUP_MAP_FILE = DSK_DIR + BS + '.dsk-dedup-map.json'
     const CWD = 'C:' + BS
     const MAX_OUT = 64 << 20
@@ -735,6 +736,22 @@ module.exports = {
       return { ok: true, entries: entries || [] }
     }
 
+    async function appendHealthHistory(disks) {
+      try {
+        var hist = await readJsonFile(HEALTH_HISTORY_FILE) || {};
+        if (typeof hist !== 'object' || Array.isArray(hist)) hist = {};
+        var now = new Date().toISOString();
+        for (var i = 0; i < disks.length; i++) {
+          var d = disks[i]; var key = d.serial || d.name; if (!key) continue;
+          if (!hist[key]) hist[key] = [];
+          hist[key].push({ ts: now, temp: d.temp, wear: d.wear, poh: d.poh, powerCycle: d.powerCycle, readErrUncorr: d.readErrUncorr, writeErrUncorr: d.writeErrUncorr, readErrCorr: d.readErrCorr, writeErrCorr: d.writeErrCorr });
+          if (hist[key].length > 100) hist[key] = hist[key].slice(-100);
+        }
+        await writeTextFile(HEALTH_HISTORY_FILE, JSON.stringify(hist, null, 2));
+        return hist;
+      } catch (e) { return null; }
+    }
+
     // ---------- 磁盘健康（SMART + 卷映射，Get-PhysicalDisk / Get-StorageReliabilityCounter / Get-Partition） ----------
     async function doHealth() {
       try {
@@ -796,7 +813,13 @@ module.exports = {
           }
         })
         if (disks.length === 0) return { ok: false, error: '未发现物理磁盘' }
-        return { ok: true, disks: disks }
+        var hist = await appendHealthHistory(disks);
+        var trend = {};
+        try {
+          var fullHist = hist || await readJsonFile(HEALTH_HISTORY_FILE) || {};
+          disks.forEach(function(d){ var key = d.serial || d.name; if (fullHist[key]) trend[key] = fullHist[key].slice(-20); });
+        } catch (e) {}
+        return { ok: true, disks: disks, trend: trend }
       } catch (e) {
         return { ok: false, error: '健康检查失败：' + (e && e.message ? e.message : String(e)) }
       }

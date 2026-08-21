@@ -353,6 +353,27 @@ function renderReport(rep) {
     chart.appendChild(row);
   });
 
+  // Age distribution (timeBuckets) - show file age by modified year
+  (function(){
+    var tb = rep.timeBuckets;
+    if (!tb || (!tb.modified && !tb.created)) return;
+    var years = Object.keys(tb.modified || {}).map(Number).sort(function(a,b){ return a-b; });
+    if (!years.length) return;
+    var maxB = 1; years.forEach(function(y){ if (tb.modified[y] > maxB) maxB = tb.modified[y]; });
+    var card = el('div', 'card');
+    card.innerHTML = '<div class="card-title">文件年龄分布（按修改年份）</div>';
+    years.slice(-12).forEach(function(y){
+      var v = tb.modified[y] || 0;
+      var pct = Math.round((v / maxB) * 100);
+      var row = el('div', 'chart-row');
+      row.innerHTML = '<div class="chart-label">' + y + '</div>' +
+        '<div class="chart-track"><div class="chart-fill" style="width:' + pct + '%;background:#ab7bff"></div></div>' +
+        '<div class="chart-val">' + fmtBytes(v) + '</div>';
+      card.appendChild(row);
+    });
+    $('rtab-overview').appendChild(card);
+  })();
+
   switchReportTab('overview');
   renderCleanCenter(rep);
   renderDupesPane(rep);
@@ -486,6 +507,44 @@ function renderDupesPane(rep) {
     tbl.appendChild(tr);
   });
   box.appendChild(tbl);
+
+  // Deep dedup inline (advanced logic inside report tab)
+  var deepWrap = el('div', 'card');
+  deepWrap.appendChild(el('div', 'card-title', '深度全盘查重（全盘哈希，排除系统/程序目录）'));
+  var deepBtn = el('button', 'btn primary', '开始深度查重（可能需数分钟）');
+  var deepInfo = el('div', 'muted', '范围：' + (rep.summary.roots || []).join('、'));
+  deepWrap.appendChild(deepInfo);
+  deepWrap.appendChild(deepBtn);
+  var deepRes = el('div', '');
+  deepWrap.appendChild(deepRes);
+  box.appendChild(deepWrap);
+
+  deepBtn.onclick = function(){
+    deepBtn.disabled = true; deepBtn.textContent = '深度查重中…';
+    deepRes.innerHTML = '<div class="notice">全盘哈希扫描中（head/tail 两阶段，可能需数分钟）…</div>';
+    var roots = (rep.summary && rep.summary.roots) || lastScanRoots;
+    api('/api/dedup', { roots: roots }).then(function(j){
+      deepBtn.disabled = false; deepBtn.textContent = '开始深度查重（可能需数分钟）';
+      if (!j.groups || !j.groups.length) { deepRes.innerHTML = '<div class="notice">未发现重复文件</div>'; return; }
+      var save2 = j.groups.reduce(function(a,g){ return a + (g.size||0)*Math.max(0,((g.files||[]).length-1)); },0);
+      deepRes.innerHTML = '<div class="muted">发现 ' + j.groups.length + ' 组 · 可节省 ≈' + fmtBytes(save2) + '</div>';
+      var tbl2 = el('table');
+      tbl2.innerHTML = '<tr><th>大小</th><th>文件数</th><th>文件（前3）</th><th></th></tr>';
+      j.groups.slice(0,30).forEach(function(g){
+        var tr = el('tr');
+        var hardBtn2 = el('button', 'btn small good', '硬链接');
+        hardBtn2.onclick = function(){
+          confirmModal('硬链接合并', '<p>保留每组 1 个原件，其余转为硬链接（同卷内），可回滚。范围：' + esc((roots||[]).join('、')) + '</p>', t('common.run'), function(){
+            api('/api/dedup', { roots: roots, hardlink: true, groups: j.groups }).then(function(r){ toast('✔ 合并 ' + r.hardlinked + ' 个', 'ok'); }).catch(function(e){ toast(e.message,'err'); });
+          });
+        };
+        tr.innerHTML = '<td>' + fmtBytes(g.size) + '</td><td>' + (g.files||[]).length + '</td><td>' + (g.files||[]).slice(0,3).map(esc).join('<br>') + '</td>';
+        var td = el('td', ''); td.appendChild(hardBtn2); tr.appendChild(td);
+        tbl2.appendChild(tr);
+      });
+      deepRes.appendChild(tbl2);
+    }).catch(function(e){ deepBtn.disabled = false; deepBtn.textContent = '开始深度查重'; deepRes.innerHTML = '<div class="notice" style="color:var(--danger)">失败：' + esc(e.message) + '</div>'; });
+  };
 }
 
 /* ---------- Tab：整理建议 ---------- */
@@ -552,8 +611,13 @@ function cleanByType(type, label) {
   confirmModal('清理 ' + (label || type) + ' — 预览', '预览将执行（移入回收站，可恢复）。点击确认生成预览。', t('common.preview'), function () {
     api('/api/clean', payload).then(function (j) {
       var note = (j.note || '') + ('（dry-run，' + (j.estBytes != null ? fmtBytes(j.estBytes) : '') + '）');
-      confirmModal('确认执行 ' + (label || type), '<p>' + esc(note) + '</p><p class="muted">再次确认后才会真正执行。全部操作写入审计日志。</p>', t('common.run'), function () {
-        api('/api/clean', { type: type, paths: [], dryRun: false }).then(function () {
+      var body2 = '<p>' + esc(note) + '</p><p class="muted">再次确认后才会真正执行。全部操作写入审计日志。</p>' +
+        '<label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="rpCheck" checked> 创建系统还原点（推荐，清理前自动创建）</label>';
+      confirmModal('确认执行 ' + (label || type), body2, t('common.run'), function () {
+        var doRp = false; try { var c = document.getElementById('rpCheck'); if (c) doRp = c.checked; } catch(e) {}
+        var body2payload = { type: type, paths: [], dryRun: false };
+        if (doRp) body2payload.restorePoint = true;
+        api('/api/clean', body2payload).then(function () {
           toast('✔ 清理完成', 'ok');
           toast(t('msg.staleStats'), '');
         }).catch(function (e) { toast('✗ ' + e.message, 'err'); });
@@ -699,10 +763,12 @@ function renderHealth() {
       box.appendChild(banner);
     }
 
+    var trend = j.trend || {};
     disks.forEach(function (d) {
       var card;
+      var tr = trend[d.serial || d.name] || null;
       if (typeof UIKit !== 'undefined' && UIKit.healthCard) {
-        card = UIKit.healthCard(d, t);
+        card = UIKit.healthCard(d, t, tr);
       } else {
       var gradeClass = d.grade === '健康' ? 'grade-ok' : d.grade === '注意' ? 'grade-note' : d.grade === '警告' ? 'grade-warn' : 'grade-danger';
       var chips = [d.media, d.bus, d.size ? fmtBytes(d.size) : null, d.firmware ? '固件 ' + d.firmware : null].filter(Boolean)
