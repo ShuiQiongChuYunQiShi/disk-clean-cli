@@ -25,98 +25,32 @@ const reportFile = opt('--report', '') || '';
 const withTime = args.indexOf('--time') >= 0;
 const suggestMode = args.indexOf('--suggest') >= 0;
 
-const DAYS = 24 * 3600 * 1000;
-const STALE_MS = 730 * DAYS;            // 陈旧阈值：修改时间超过 730 天
-const STALE_LARGE_MIN = 500 * 1024 * 1024; // 陈旧大文件阈值：≥ 500MB
-const DUP_MIN_SIZE = 1 << 20;           // 重复候选最小字节：1MB（原 512B，避免为小文件哈希浪费时间）
-const DUP_FULL_LIMIT = 32 * 1024 * 1024;  // 全哈希确认上限
-const DUP_HEAD = 64 * 1024;             // head 哈希长度（阶段 1）
-const DUP_TAIL = 64 * 1024;             // tail 哈希长度（阶段 2，仅 head 命中后读取）
-
-// ---------- 规则库（与插件一致） ----------
-const EXT_CAT = {
-  mp4:'媒体',mkv:'媒体',mov:'媒体',avi:'媒体',wmv:'媒体',flv:'媒体',webm:'媒体',m4v:'媒体',ts:'媒体',
-  mp3:'媒体',flac:'媒体',wav:'媒体',aac:'媒体',ogg:'媒体',m4a:'媒体',wma:'媒体',opus:'媒体',mid:'媒体',
-  jpg:'图片',jpeg:'图片',png:'图片',gif:'图片',webp:'图片',bmp:'图片',svg:'图片',ico:'图片',tif:'图片',tiff:'图片',raw:'图片',heic:'图片',psd:'图片',ai:'图片',avif:'图片',
-  doc:'文档',docx:'文档',xls:'文档',xlsx:'文档',ppt:'文档',pptx:'文档',pdf:'文档',txt:'文档',md:'文档',rtf:'文档',csv:'文档',epub:'文档',pages:'文档',numbers:'文档',key:'文档',
-  zip:'压缩包',rar:'压缩包','7z':'压缩包',tar:'压缩包',gz:'压缩包',bz2:'压缩包',xz:'压缩包',iso:'压缩包',cab:'压缩包',zst:'压缩包',
-  exe:'安装包',msi:'安装包',msix:'安装包',appx:'安装包',dmg:'安装包',
-  js:'代码',ts:'代码',jsx:'代码',tsx:'代码',py:'代码',java:'代码',c:'代码',h:'代码',cpp:'代码',cc:'代码',hpp:'代码',cs:'代码',go:'代码',rs:'代码',rb:'代码',php:'代码',swift:'代码',kt:'代码',scala:'代码',sh:'代码',bat:'代码',ps1:'代码',sql:'代码',html:'代码',css:'代码',vue:'代码',json:'代码',xml:'代码',yaml:'代码',yml:'代码',toml:'代码',ini:'代码',cfg:'代码',
-  log:'日志',tmp:'临时',temp:'临时',bak:'备份',
-  dll:'系统',sys:'系统',drv:'系统',mui:'系统',cat:'系统',ocx:'系统',
-  db:'数据库',sqlite:'数据库',sqlite3:'数据库',mdf:'数据库',ldf:'数据库',accdb:'数据库',mdb:'数据库',
-  vhd:'虚拟磁盘',vhdx:'虚拟磁盘',vmdk:'虚拟磁盘',vdi:'虚拟磁盘',
-  node_modules:'依赖包',jar:'依赖包',whl:'依赖包',gem:'依赖包',nupkg:'依赖包'
-};
-const EXT_JUNK = { dmp:'崩溃转储', mdmp:'崩溃转储', tmp:'临时文件', temp:'临时文件' };
-const DIR_CAT_RULES = [
-  { segs:['windows'], cat:'系统目录' },
-  { segs:['windows.old'], cat:'旧系统' },
-  { segs:['program files','program files (x86)'], cat:'程序目录' },
-  { segs:['programdata'], cat:'应用数据' },
-  { segs:['appdata'], cat:'应用数据' },
-  { segs:['users'], cat:'用户数据' },
-  { segs:['documents','downloads','desktop','pictures','videos','music','onedrive'], cat:'用户数据' },
-  { segs:['node_modules','.git','dist','build','target','__pycache__','venv','.venv','.gradle','.idea','.vscode'], cat:'开发工程' },
-  { segs:['temp','tmp','cache','caches'], cat:'临时/缓存' },
-  { segs:['$recycle.bin'], cat:'回收站' }
-];
-const JUNK_RULES = [
-  { label:'回收站', match:s => s.indexOf('$recycle.bin') >= 0 },
-  { label:'用户临时目录', match:s => s.indexOf('appdata') >= 0 && s.indexOf('temp') >= 0 },
-  { label:'Windows 临时', match:s => s.indexOf('windows') >= 0 && s.indexOf('temp') >= 0 },
-  { label:'Windows 预读取', match:s => s.indexOf('windows') >= 0 && s.indexOf('prefetch') >= 0 },
-  { label:'Windows 更新缓存', match:s => s.indexOf('windows') >= 0 && s.indexOf('softwaredistribution') >= 0 && s.indexOf('download') >= 0 },
-  { label:'浏览器缓存', match:s => (s.indexOf('chrome') >= 0 || s.indexOf('msedge') >= 0 || s.indexOf('microsoft edge') >= 0 || s.indexOf('firefox') >= 0 || s.indexOf('chromium') >= 0) && (s.indexOf('cache') >= 0 || s.indexOf('cacheddata') >= 0 || s.indexOf('code cache') >= 0 || s.indexOf('gpucache') >= 0) },
-  { label:'缩略图缓存', match:s => s.indexOf('explorer') >= 0 && (s.indexOf('thumbcache') >= 0 || s.indexOf('thumbnails') >= 0 || s.indexOf('iconcache') >= 0) },
-  { label:'Windows.old', match:s => s.indexOf('windows.old') >= 0 }
-];
-const AUTO_SKIP = ['system volume information'];
-const MAX_DEPTH = 64;
-const CONCURRENCY = 64;
-
-// 用户数据目录段（重复检测 / 历史目录检测只针对这些区域）
-const USER_ZONE_SEGS = ['downloads', 'documents', 'desktop', 'pictures', 'videos', 'music', 'onedrive'];
-// 游戏库目录段：这些目录由启动器（Steam/WeGame/Epic 等）校验完整性，
-// 无需重复哈希 / 陈旧 / 垃圾检测，仍统计大小与文件数（报告需要）。
-const APP_ZONE_SEGS = [
-  'steamapps', 'wegameapps', 'rail_apps', 'epic games', 'gog games', 'gog galaxy',
-  'battle.net', 'origin games', 'xboxgames', 'ubisoft game launcher', 'blizzard', 'ubisoft'
-];
-// ---------- 目录整理建议（散落目录检测） ----------
-const LOOSE_MS = 30 * DAYS;            // 散落判定：目录修改时间 > 30 天
-const LOOSE_MIN = 100 * 1024 * 1024;   // 散落判定：目录大小 ≥ 100MB
-const LOOSE_MAX = 100;                 // 报告 organizeCandidates 上限
-// 盘根下忽略的标准/系统目录（不当作散落候选）
-const DRIVE_ROOT_SKIP = [
-  'windows', 'program files', 'program files (x86)', 'programdata', 'users',
-  '$recycle.bin', 'system volume information', 'recovery', 'perflogs',
-  'intel', 'msocache', 'config.msi', 'onekey', 'oneclick', 'dsh', '.dsh',
-  '整理区', 'temp', 'tmp'
-];
-// 程序/游戏目录名特征（B 类：仅提示，不移动）
-const PROG_NAME_HINTS = [
-  'steam', 'wegame', 'epic', 'gog', 'battle.net', 'origin', 'xbox', 'ubisoft', 'blizzard', 'razer', 'logitech',
-  'qq', 'wechat', 'weixin', '微信', 'tim', '钉钉', 'dingtalk', 'alipay', '支付宝', 'wps', 'office', 'vs code', 'vscode',
-  'visual studio', 'jetbrains', 'idea', 'pycharm', 'goland', 'webstorm', 'android', 'sdk', 'ndk', 'nodejs', 'node',
-  'python', 'anaconda', 'miniconda', 'rust', 'cargo', 'golang', 'unity', 'unreal', 'ue4', 'ue5', 'blender', 'photoshop', 'adobe',
-  'autocad', 'cad', 'chrome', 'firefox', 'edge', '360', 'tencent', 'baidu', 'alibaba', 'netease', 'youdao', 'obs', 'bandizip',
-  'winrar', '7-zip', '7zip', 'vmware', 'virtualbox', 'docker', 'wsl', 'git', 'svn', 'maven', 'gradle', 'npm', 'yarn', 'pnpm',
-  'mysql', 'postgresql', 'oracle', 'mongodb', 'redis', 'nginx', 'tomcat', 'java', 'jdk', 'jre', 'dotnet', 'vcredist', 'directx',
-  'vulkan', 'cuda', 'nvidia', 'amd', 'driver', '驱动', '游戏', 'games', 'game', 'lol', '英雄联盟', 'dota', 'csgo', 'cs2', 'valorant',
-  'genshin', '原神', 'mihoyo', 'miyoho', 'star rail', '崩坏', 'apex', 'pubg', '绝地求生', 'minecraft', '我的世界'
-];
-// 程序/游戏目录结构特征（浅层子目录命中任一即 B 类；.git/node_modules 属项目目录，归 A 类可移动）
-const PROG_DIR_HINTS = ['steamapps', 'wegameapps', 'rail_apps', 'bin', 'exe', 'release', 'debug'];
-// 可执行/系统文件扩展（浅层计数 ≥3 即 B 类）
-const PROG_EXT = { exe: 1, dll: 1, msi: 1, msix: 1, appx: 1, sys: 1, bat: 1, cmd: 1 };
-// 引擎主导分类 → 整理区子目录（其余归「其他」）
-const ORG_CAT_MAP = { '媒体': '媒体', '图片': '图片', '文档': '文档', '安装包': '安装包', '压缩包': '压缩包', '虚拟磁盘': '虚拟磁盘', '数据库': '数据库', '备份': '备份' };
+// 规则单源：所有规则表与阈值默认值来自 dsk-rules.js（由 lib/rules.js 生成）
+const Rules = require('./dsk-rules.js');
+const { DAYS, DUP_FULL_LIMIT, DUP_HEAD, DUP_TAIL, WIDE_MAX_FILES, WIDE_MAX_BYTES, LOOSE_MAX, MAX_DEPTH, CONCURRENCY,
+  EXT_CAT, EXT_JUNK, DIR_CAT_RULES, JUNK_RULES, AUTO_SKIP, USER_ZONE_SEGS, APP_ZONE_SEGS, DRIVE_ROOT_SKIP,
+  PROG_NAME_HINTS, PROG_DIR_HINTS, PROG_EXT, ORG_CAT_MAP } = Rules;
+const STALE_MS = Rules.DEFAULTS.STALE_MS;
+const STALE_LARGE_MIN = Rules.DEFAULTS.STALE_LARGE_MIN;
+const DUP_MIN_SIZE = Rules.DEFAULTS.DUP_MIN_SIZE;
+const LOOSE_MS = Rules.DEFAULTS.LOOSE_MS;
+const LOOSE_MIN = Rules.DEFAULTS.LOOSE_MIN;
 
 function low(s) { return String(s || '').toLowerCase() }
 function isDedupZone(p) {
   const segs = splitSegs(p);
   return segs.some(s => USER_ZONE_SEGS.indexOf(s) >= 0);
+}
+// 扩展查重范围：扫描根浅层（目录深度 ≤2，即盘根第一层及其直接子目录），
+// 排除程序/游戏特征命名与系统段 —— 数据盘没有用户区时的 fallback，否则重复检测必然为空
+function wideDedupEligible(segs) {
+  if (segs.length > 2) return false;
+  for (const s of segs) {
+    const n = low(s);
+    if (n.charAt(0) === '$' || n === 'system volume information') return false;
+    if (PROG_NAME_HINTS.indexOf(n) >= 0) return false;
+  }
+  return true;
 }
 function isAppZone(segs) {
   return segs.some(s => APP_ZONE_SEGS.indexOf(s) >= 0);
@@ -142,6 +76,10 @@ const results = {
 };
 // 建议模式数据
 const bySize = new Map();      // size -> [{path, size}]（仅用户区且 ≥1MB）
+const bySizeWide = new Map();  // size -> [{path, size, wide}] 扩展候选：扫描根浅层非程序目录
+let wideCount = 0;             // 扩展候选已收集文件数（封顶防哈希阶段卡顿）
+let userZoneSeen = false;      // 本次扫描是否见过用户区目录（报告 dupScan 用）
+const junkPaths = new Map();   // junk label -> Set<dir|file path>（一键清理用的真实路径样本）
 const staleFiles = [];         // {path, size, mtimeMs} 修改时间超阈值（非游戏库区）
 const dirOld = new Map();      // dir -> {count, oldCount}（目录内创建时间统计，仅用户区）
 const looseCandidates = [];    // {path, name, zone:'drive'|'user'} 散落目录候选（walk 收集）
@@ -210,7 +148,15 @@ async function walk(dir, segs, depth, inAppZone) {
       results.ext[ek] = (results.ext[ek] || 0) + sz;
       if (appZone) { stats.appZoneFiles++; stats.appZoneBytes += sz; }
       const jl = junkFor(segs, ext);
-      if (jl) { results.junk[jl] = (results.junk[jl] || 0) + sz; results.junkCount[jl] = (results.junkCount[jl] || 0) + 1; }
+      if (jl) {
+        results.junk[jl] = (results.junk[jl] || 0) + sz; results.junkCount[jl] = (results.junkCount[jl] || 0) + 1;
+        if (suggestMode) {
+          // 记录真实路径样本：目录型垃圾记目录，文件型垃圾（.dmp/.tmp）记文件本身
+          let pset = junkPaths.get(jl);
+          if (!pset) { pset = new Set(); junkPaths.set(jl, pset); }
+          if (pset.size < 60) pset.add(EXT_JUNK[ext] ? path.join(dir, en.name) : dir);
+        }
+      }
       if (sz > 0) {
         const tf = results.topFiles;
         if (tf.length < 100) { tf.push({ path: path.join(dir, en.name), bytes: sz }); tf.sort((a, b) => b.bytes - a.bytes); }
@@ -221,10 +167,20 @@ async function walk(dir, segs, depth, inAppZone) {
         const y = st.mtime.getFullYear(); results.modifiedBuckets[y] = (results.modifiedBuckets[y] || 0) + sz;
       }
       if (suggestMode && !appZone) {
-        // 去重候选：仅用户区且 ≥1MB（A+C）
-        if (sz >= DUP_MIN_SIZE && isDedupZone(dir)) {
-          const arr = bySize.get(sz);
-          if (arr) arr.push({ path: path.join(dir, en.name), size: sz }); else bySize.set(sz, [{ path: path.join(dir, en.name), size: sz }]);
+        // 去重候选：① 用户区 ≥1MB（原有）；② 扫描根浅层（深度≤2）非程序目录 —— 数据盘无用户区时的 fallback
+        let dz = null;
+        if (sz >= DUP_MIN_SIZE) {
+          if (isDedupZone(dir)) {
+            dz = bySize; userZoneSeen = true;
+          } else if (wideCount < WIDE_MAX_FILES && sz <= WIDE_MAX_BYTES && wideDedupEligible(segs)) {
+            dz = bySizeWide; wideCount++;
+          }
+        }
+        if (dz) {
+          const item = { path: path.join(dir, en.name), size: sz };
+          if (dz === bySizeWide) item.wide = true;
+          const arr = dz.get(sz);
+          if (arr) arr.push(item); else dz.set(sz, [item]);
         }
         if (now - st.mtimeMs > STALE_MS && sz > 0) staleFiles.push({ path: path.join(dir, en.name), size: sz, modified: st.mtime.toISOString().slice(0, 10) });
         if (isDedupZone(dir)) {
@@ -289,7 +245,8 @@ function finalize() {
       roots, totalFiles: stats.files, totalDirs: dirMap.size, totalBytes: stats.bytes,
       emptyDirs: stats.emptyDirs, skipped: stats.skipped, scannedAt: new Date().toISOString(),
       status: cancelled ? 'cancelled' : 'done',
-      appZoneFiles: stats.appZoneFiles, appZoneBytes: stats.appZoneBytes
+      appZoneFiles: stats.appZoneFiles, appZoneBytes: stats.appZoneBytes,
+      dupScan: suggestMode ? { userZoneSeen: userZoneSeen, wideCandidates: wideCount } : undefined
     },
     category, extTop, topDirs, topFiles: results.topFiles, junk,
     emptyDirSample: results.emptyDirs, timeBuckets
@@ -360,16 +317,27 @@ async function buildSuggestions(junkArr, emptySample, emptyCount) {
   for (const j of junkArr) {
     if (tempLabels.indexOf(j.label) >= 0) { tempBytes += j.bytes; tempItems.push({ label: j.label, bytes: j.bytes, count: j.count }); }
   }
-  if (tempBytes > 0) s.push({ type: 'junk-temp', title: '清理临时与缓存文件', risk: 'low', estBytes: tempBytes, items: tempItems, note: '临时文件/浏览器缓存/预读取等，删除后可重新生成' });
+  if (tempBytes > 0) {
+    const pset = new Set();
+    for (const lb of tempLabels) { const ps = junkPaths.get(lb); if (ps) for (const p of ps) pset.add(p); }
+    s.push({ type: 'junk-temp', title: '清理临时与缓存文件', risk: 'low', estBytes: tempBytes, items: tempItems, paths: Array.from(pset).slice(0, 300), note: '临时文件/浏览器缓存/预读取等，删除后可重新生成' });
+  }
   // 2) 清空回收站（高-不可逆）
   const rb = junkArr.find(j => j.label === '回收站');
   if (rb && rb.bytes > 0) s.push({ type: 'recycle-bin', title: '清空回收站', risk: 'high-irreversible', estBytes: rb.bytes, items: [{ path: rb.label, bytes: rb.bytes, count: rb.count }], note: '永久删除，不可恢复' });
   // 3) 删除空文件夹（低）
   if (emptyCount > 0) s.push({ type: 'empty-dirs', title: '删除空文件夹', risk: 'low', estBytes: 0, count: emptyCount, items: emptySample.slice(0, 100).map(p => ({ path: p })), note: '共 ' + emptyCount + ' 个空文件夹' });
-  // 4) 重复文件（中）—— 两阶段哈希 + 并发（A/B/C/E）
+  // 4) 重复文件（中）—— 两阶段哈希 + 并发（A/B/C/E）；候选 = 用户区 ∪ 扫描根浅层扩展
+  const combined = new Map();
+  for (const m of [bySize, bySizeWide]) {
+    for (const [size, list] of m) {
+      const arr = combined.get(size);
+      if (arr) arr.push.apply(arr, list); else combined.set(size, list.slice());
+    }
+  }
   const dupGroups = [];
   const sizeBuckets = [];
-  for (const [size, list] of bySize) if (list.length >= 2) sizeBuckets.push({ size: size, list: list });
+  for (const [size, list] of combined) if (list.length >= 2) sizeBuckets.push({ size: size, list: list });
   if (sizeBuckets.length > 0) {
     const headItems = [];
     for (const b of sizeBuckets) for (const f of b.list) headItems.push({ f: f, size: b.size });
@@ -395,19 +363,19 @@ async function buildSuggestions(junkArr, emptySample, emptyCount) {
       }
     }
   }
-  // 仅保留用户区可安全删除的重复（Downloads/Documents/Desktop/Pictures 等），保留路径最短者
+  // 仅保留可安全删除的重复：用户区文件，或浅层扩展候选（wide）；保留路径最短者
   const removable = [];
   let dupBytes = 0;
   for (const g of dupGroups) {
-    const userFiles = g.filter(f => isDedupZone(f.path));
-    if (userFiles.length < 2) continue;
-    userFiles.sort((a, b) => a.path.length - b.path.length);
-    const keep = userFiles[0];
-    const dups = userFiles.slice(1);
+    const elig = g.filter(f => isDedupZone(f.path) || f.wide);
+    if (elig.length < 2) continue;
+    elig.sort((a, b) => a.path.length - b.path.length);
+    const keep = elig[0];
+    const dups = elig.slice(1);
     dupBytes += dups.reduce((a, f) => a + f.size, 0);
-    removable.push({ size: g[0].size, keep: keep.path, removable: dups.map(f => f.path) });
+    removable.push({ size: g[0].size, keep: keep.path, removable: dups.map(f => f.path), scope: isDedupZone(keep.path) ? 'user' : 'wide' });
   }
-  if (removable.length > 0) s.push({ type: 'duplicates', title: '删除重复文件', risk: 'medium', estBytes: dupBytes, groups: removable.slice(0, 50), note: '保留路径最短者，其余移入回收站（仅用户区）' });
+  if (removable.length > 0) s.push({ type: 'duplicates', title: '删除重复文件', risk: 'medium', estBytes: dupBytes, groups: removable.slice(0, 50), note: '保留路径最短者，其余移入回收站（范围：用户区 + 扫描根浅层；全盘深度查重请用「深度查重」按钮）' });
   // 5) 大陈旧文件（中，非游戏库区）
   const staleLarge = staleFiles.filter(f => f.size >= STALE_LARGE_MIN).sort((a, b) => b.size - a.size);
   if (staleLarge.length > 0) s.push({ type: 'stale-large', title: '清理长期未使用的大文件', risk: 'medium', estBytes: staleLarge.reduce((a, f) => a + f.size, 0), items: staleLarge.slice(0, 50).map(f => ({ path: f.path, bytes: f.size, modified: f.modified })), note: '修改时间超过 730 天且 ≥ 500MB' });
@@ -752,49 +720,6 @@ async function restoreShortcuts(fixes) {
     const DANGER = ['\\windows\\', '\\program files\\', '\\program files (x86)\\', '\\programdata\\', '\\winsxs\\', '\\system volume information\\', '\\$recycle.bin\\'];
     const moved = [], failed = [];
     async function existsP(p) { try { await fsp.access(p); return true; } catch (e) { return false; } }
-    // 确保目标父目录存在：已存在（含盘根）时跳过 mkdir——对盘根 recursive mkdir 会抛 EPERM
-    async function ensureParent(dst) {
-      const parent = path.dirname(dst);
-      try {
-        const s = await fsp.stat(parent);
-        if (s.isDirectory()) return;
-      } catch (e) { /* 不存在则创建 */ }
-      await fsp.mkdir(parent, { recursive: true });
-    }
-    // 移动单个路径：同盘 rename 优先；rename 失败(瞬时锁/ACL) fallback 复制+删除；整体重试 4 次
-    async function movePath(src, dst, st) {
-      const sameRoot = path.parse(src).root.toLowerCase() === path.parse(dst).root.toLowerCase();
-      for (let attempt = 1; attempt <= 4; attempt++) {
-        try {
-          if (sameRoot) {
-            try {
-              await fsp.rename(src, dst);
-            } catch (e1) {
-              if (await existsP(dst)) throw e1; // dst 已存在禁止 fallback（避免复制合并）
-              if (st.isDirectory()) {
-                await fsp.cp(src, dst, { recursive: true });
-                await fsp.rm(src, { recursive: true });
-              } else {
-                await fsp.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
-                await fsp.unlink(src);
-              }
-            }
-          } else if (st.isDirectory()) {
-            // 跨盘目录：递归 copy + 删除源（Node ≥16.7 的 fs.cp）
-            await fsp.cp(src, dst, { recursive: true });
-            await fsp.rm(src, { recursive: true });
-          } else {
-            await fsp.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
-            await fsp.unlink(src);
-          }
-          return;
-        } catch (e) {
-          if (attempt >= 4) throw e;
-          // 瞬时锁（Defender/索引服务扫描）等待后重试——窗口逐步加大
-          await new Promise(function(r) { setTimeout(r, 2000 * attempt) });
-        }
-      }
-    }
     for (const item of plan) {
       const src = item && item.src, dst = item && item.dst;
       if (!src || !dst || src === dst) { failed.push({ src: src, dst: dst, reason: '无效路径' }); continue; }
@@ -804,9 +729,20 @@ async function restoreShortcuts(fixes) {
       try {
         await fsp.access(src);
         if (await existsP(dst)) { failed.push({ src: src, dst: dst, reason: '目标已存在' }); continue; }
-        await ensureParent(dst);
+        await fsp.mkdir(path.dirname(dst), { recursive: true });
         const st = await fsp.stat(src);
-        await movePath(src, dst, st);
+        const sameRoot = path.parse(src).root.toLowerCase() === path.parse(dst).root.toLowerCase();
+        if (sameRoot) {
+          // 同盘：rename 对文件与目录均适用
+          await fsp.rename(src, dst);
+        } else if (st.isDirectory()) {
+          // 跨盘目录：递归 copy + 删除源（Node ≥16.7 的 fs.cp）
+          await fsp.cp(src, dst, { recursive: true });
+          await fsp.rm(src, { recursive: true });
+        } else {
+          await fsp.copyFile(src, dst, fs.constants.COPYFILE_EXCL);
+          await fsp.unlink(src);
+        }
         moved.push({ src: src, dst: dst });
       } catch (e) {
         failed.push({ src: src, dst: dst, reason: (e && e.code) || (e && e.message) || String(e) });
@@ -814,11 +750,8 @@ async function restoreShortcuts(fixes) {
     }
     let map = [];
     try { map = JSON.parse(fs.readFileSync(mapFile, 'utf8')); if (!Array.isArray(map)) map = []; } catch (e) { map = []; }
-    // 仅当确有移动时才追加回滚记录（空批次不写，避免污染最后一批）
-    if (moved.length > 0) {
-      map.push({ ts: new Date().toISOString(), items: moved });
-      try { fs.writeFileSync(mapFile, JSON.stringify(map, null, 2), 'utf8'); } catch (e) { /* 记录失败但不中止 */ }
-    }
+    map.push({ ts: new Date().toISOString(), items: moved });
+    try { fs.writeFileSync(mapFile, JSON.stringify(map, null, 2), 'utf8'); } catch (e) { /* 记录失败但不中止 */ }
     process.stdout.write('\n' + JSON.stringify({ ok: true, movedCount: moved.length, failedCount: failed.length, moved: moved.slice(0, 200), failed: failed.slice(0, 50), mapFile: mapFile }));
     process.exit(0);
   }
