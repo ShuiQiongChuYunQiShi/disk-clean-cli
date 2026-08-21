@@ -571,6 +571,12 @@ var lastPlan = null;
 function renderOrganize() {
   var box = $('tab-organize');
   box.innerHTML = '';
+  var nav = el('div', 'row gap');
+  var backBtn = el('button', 'btn small', '← ' + t('rep.tabOverview'));
+  backBtn.onclick = function(){ switchView('home'); switchReportTab('organize'); };
+  nav.appendChild(backBtn);
+  nav.appendChild(el('span', 'muted', '整理建议 / 主页整理 Tab 互通'));
+  box.appendChild(nav);
   var row = el('div', 'row gap');
   var planBtn = el('button', 'btn', t('sugg.organize'));
   var incProg = el('button', 'btn', '--include-program');
@@ -651,9 +657,11 @@ function selectedPlanItems() {
   return idx.map(function (i) { return lastPlan[i]; }).filter(Boolean);
 }
 
-/* ---------- health ---------- */
+/* ---------- health (uses UIKit shared) ---------- */
 var GRADE_RANK = { '健康': 0, '注意': 1, '警告': 2, '危险': 3 };
 function gaugeHtml(label, value, max, text, color) {
+  // Delegates to UIKit for reuse; fallback to local impl
+  if (typeof UIKit !== 'undefined' && UIKit.gaugeHtml) return UIKit.gaugeHtml(label, value, max, text, color);
   var ratio = max > 0 ? Math.min(1, (value || 0) / max) : 0;
   return '<div class="gauge"><div class="gauge-l"><span>' + esc(label) + '</span><span>' + esc(text) + '</span></div>' +
     '<div class="gauge-b"><div style="width:' + Math.max(2, Math.round(ratio * 100)) + '%;background:' + (color || 'var(--accent,#4d9fff)') + '"></div></div></div>';
@@ -663,26 +671,40 @@ function renderHealth() {
   box.innerHTML = '<div class="notice">读取磁盘健康数据…</div>';
   api('/api/health-check').then(function (j) {
     box.innerHTML = '';
+    // Back to report
+    var nav = el('div', 'row gap');
+    var backBtn = el('button', 'btn small', '← ' + t('rep.tabOverview'));
+    backBtn.onclick = function(){ switchView('home'); switchReportTab('overview'); };
+    nav.appendChild(backBtn);
+    box.appendChild(nav);
     var disks = j.disks || [];
     if (!disks.length) { box.appendChild(el('div', 'notice', '（无磁盘健康数据）')); return; }
-    var worst = null;
-    disks.forEach(function (d) { if (!worst || (GRADE_RANK[d.grade] || 0) > (GRADE_RANK[worst.grade] || 0)) worst = d; });
-    var cnt = { ok: disks.filter(function (d) { return d.grade === '健康'; }).length, warn: disks.filter(function (d) { return d.grade === '注意' || d.grade === '警告'; }).length, danger: disks.filter(function (d) { return d.grade === '危险'; }).length };
-    var banner = el('div', 'card health-banner');
-    banner.innerHTML = '<span class="health-grade ' + (worst.grade === '健康' ? 'grade-ok' : worst.grade === '注意' ? 'grade-note' : worst.grade === '警告' ? 'grade-warn' : 'grade-danger') + '">' + esc(worst.grade) + '</span>' +
-      '<b>' + esc(t('rep.healthOverall')) + '：' + esc(worst.grade) + '</b>' +
-      (worst.issues && worst.issues.length ? '<span class="muted"> — ' + esc(worst.issues[0]) + '</span>' : '') +
-      '<span class="chip">✅ ' + cnt.ok + '</span>' +
-      (cnt.warn ? '<span class="chip" style="color:var(--warn,#f4b740)">⚠ ' + cnt.warn + '</span>' : '') +
-      (cnt.danger ? '<span class="chip" style="color:var(--danger,#ef5350)">⛔ ' + cnt.danger + '</span>' : '');
-    var refreshBtn = el('button', 'btn small', t('rep.refresh'));
-    refreshBtn.onclick = renderHealth;
-    banner.appendChild(refreshBtn);
-    box.appendChild(banner);
+    // Use UIKit for banner if available
+    if (typeof UIKit !== 'undefined' && UIKit.healthBanner) {
+      box.appendChild(UIKit.healthBanner(disks, t));
+    } else {
+      var worst = null;
+      disks.forEach(function (d) { if (!worst || (GRADE_RANK[d.grade] || 0) > (GRADE_RANK[worst.grade] || 0)) worst = d; });
+      var cnt = { ok: disks.filter(function (d) { return d.grade === '健康'; }).length, warn: disks.filter(function (d) { return d.grade === '注意' || d.grade === '警告'; }).length, danger: disks.filter(function (d) { return d.grade === '危险'; }).length };
+      var banner = el('div', 'card health-banner');
+      banner.innerHTML = '<span class="health-grade ' + (worst.grade === '健康' ? 'grade-ok' : worst.grade === '注意' ? 'grade-note' : worst.grade === '警告' ? 'grade-warn' : 'grade-danger') + '">' + esc(worst.grade) + '</span>' +
+        '<b>' + esc(t('rep.healthOverall')) + '：' + esc(worst.grade) + '</b>' +
+        (worst.issues && worst.issues.length ? '<span class="muted"> — ' + esc(worst.issues[0]) + '</span>' : '') +
+        '<span class="chip">✅ ' + cnt.ok + '</span>' +
+        (cnt.warn ? '<span class="chip" style="color:var(--warn,#f4b740)">⚠ ' + cnt.warn + '</span>' : '') +
+        (cnt.danger ? '<span class="chip" style="color:var(--danger,#ef5350)">⛔ ' + cnt.danger + '</span>' : '');
+      var refreshBtn = el('button', 'btn small', t('rep.refresh'));
+      refreshBtn.onclick = renderHealth;
+      banner.appendChild(refreshBtn);
+      box.appendChild(banner);
+    }
 
     disks.forEach(function (d) {
+      var card;
+      if (typeof UIKit !== 'undefined' && UIKit.healthCard) {
+        card = UIKit.healthCard(d, t);
+      } else {
       var gradeClass = d.grade === '健康' ? 'grade-ok' : d.grade === '注意' ? 'grade-note' : d.grade === '警告' ? 'grade-warn' : 'grade-danger';
-      var card = el('div', 'health-card');
       var chips = [d.media, d.bus, d.size ? fmtBytes(d.size) : null, d.firmware ? '固件 ' + d.firmware : null].filter(Boolean)
         .map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join('');
       var gauges =
@@ -705,12 +727,14 @@ function renderHealth() {
         });
         volHtml += '</table>';
       }
+      card = el('div', 'health-card');
       card.innerHTML = '<div class="health-grade ' + gradeClass + '">' + esc(d.grade || '?') + '</div>' +
         '<div class="grow"><div><b>' + esc(d.name) + '</b> ' + chips + '</div>' +
         (d.op && d.op !== 'OK' ? '<div class="issue">运行状态异常：' + esc(d.op) + '</div>' : '') +
         (d.issues && d.issues.length ? '<div class="issue">⚠ ' + d.issues.map(esc).join('；') + '</div>' : '') +
         '<div class="gauges">' + gauges + '</div>' +
         '<div class="muted">' + errLine + '</div>' + volHtml + '</div>';
+      }
       box.appendChild(card);
     });
   }).catch(function (e) { box.innerHTML = ''; toast(e.message, 'err'); });
@@ -722,6 +746,12 @@ var dedupGroups = null;
 function renderDedup() {
   var box = $('tab-dedup');
   box.innerHTML = '';
+  var nav = el('div', 'row gap');
+  var backBtn = el('button', 'btn small', '← ' + t('rep.tabOverview'));
+  backBtn.onclick = function(){ switchView('home'); switchReportTab('dupes'); };
+  nav.appendChild(backBtn);
+  nav.appendChild(el('span', 'muted', '高级去重 / 主页重复文件 Tab 互通'));
+  box.appendChild(nav);
   var row = el('div', 'row gap');
   var scanBtn = el('button', 'btn', '扫描重复文件');
   var hardBtn = el('button', 'btn warn', '硬链接合并（--yes）');
