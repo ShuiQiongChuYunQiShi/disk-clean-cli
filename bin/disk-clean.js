@@ -36,7 +36,7 @@ if (process.argv[2] === '--internal-scan') {
 }
 
 const BS = '\\';
-const VER = '0.3.2';
+const VER = '0.4.0';
 
 // SEA（单文件 exe）检测：node 环境 spawn 需带脚本路径，SEA 环境直接自我调用
 let IS_SEA = false;

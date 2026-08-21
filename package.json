@@ -1,6 +1,6 @@
 {
   "name": "disk-clean",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "description": "Windows disk cleanup & analysis CLI — scan, classify, suggest, safely organize (with shortcut fixing) and clean. Zero runtime dependencies.",
   "license": "MIT",
   "bin": {

@@ -4,7 +4,7 @@
 ; Downloads missing .NET 8 Desktop Runtime / WebView2 via official bootstrappers.
 
 #define MyAppName "disk-clean"
-#define MyAppVersion "0.3.2"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "ShuiQiongChuYunQiShi"
 #define MyAppExeName "disk-clean-ui.exe"
 
