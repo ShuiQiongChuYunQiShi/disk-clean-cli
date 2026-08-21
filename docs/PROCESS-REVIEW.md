@@ -208,6 +208,8 @@
 | G45 | 带空格参数被 Start-Process 拆断 | `-ArgumentList '/DIR=C:\Program','Files\disk-clean'`（数组按空格拆）→ 装到 `C:\Program\` | ArgumentList 传**整体字符串**：`'/VERYSILENT ... /DIR="C:\Program Files\disk-clean"'` |
 | G46 | PS 5.1 管道改写把 UTF-8 中文文件写坏（serve.js 语法错误） | `Get-Content -Raw`（无 `-Encoding UTF8`）按 GBK 读 → `Set-Content -Encoding UTF8` 写 BOM+乱码；铁律 #1 的管道变体 | **版本 bump / 批量替换一律写 Node 脚本执行**（readFileSync/writeFileSync utf8 无 BOM），不走 PS 管道 |
 | G47 | `git checkout -- <file>` 回滚编码损坏时，把该文件上**未提交的功能改动一并抹掉**（index.html Tab 结构丢失，装出来还是旧界面且构建通过） | checkout 是整文件回退，不区分"坏改动"与"好改动" | checkout 前 `git diff <file>` 盘点未提交改动；checkout 后逐项重做并**用产物内容验证**（如 grep rep-tabs），不能只看构建成功 |
+| G48 | `publish-release.ps1` 中 `(git tag -l $tag).Trim()` 在 tag 不存在时返回 `$null` → `.Trim()` 空引用 | `git tag -l` 无匹配时返回 null，PS 调用方法即 NPE | 用 `((git tag -l $tag) \| Out-String).Trim()` 兼容 null |
+| G49 | `publish-release.ps1` 中 `git push` / `gh release` 的 stderr 被 PS 5.1 当作 NativeCommandError，且 `$ErrorActionPreference='Stop'` 使成功也变终止错误 | PS 5.1 对 native 命令的 stderr 视为错误流；`git push` 的 "To https://..." 走 stderr | 发布脚本设 `$ErrorActionPreference='Continue'`，`git/gh` 调用后用 `$LASTEXITCODE` 判成功，而非依赖 error 流 |
 
 好点（继续沿用）：
 - **用报告文件实证**定位"2.2TB"真相（不猜、不甩锅给容量算法）；`statfsSync` 实测与用户口述吻合。
