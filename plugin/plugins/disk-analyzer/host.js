@@ -277,7 +277,8 @@ return {
           elapsedMs: scan.elapsedMs || (sm.elapsedMs || 0),
           scannedAt: sm.scannedAt || '',
           status: scan.status,
-          error: scan.error || null
+          error: scan.error || null,
+          dupScan: sm.dupScan || null
         },
         category: r.category || [],
         extTop: r.extTop || [],
@@ -585,28 +586,39 @@ return {
       return { ok: true, entries: entries || [] }
     }
 
-    // ---------- 磁盘健康（温度/SMART，Get-PhysicalDisk + Get-StorageReliabilityCounter） ----------
+    // ---------- 磁盘健康（SMART + 卷映射，Get-PhysicalDisk / Get-StorageReliabilityCounter / Get-Partition） ----------
     async function doHealth() {
       try {
         const script = [
           '$ErrorActionPreference = "SilentlyContinue"',
           '$disks = Get-PhysicalDisk | ForEach-Object {',
           '  $rel = Get-StorageReliabilityCounter -PhysicalDisk $_ -ErrorAction SilentlyContinue',
+          '  $vols = @();',
+          '  try { $vols = Get-Partition -DiskNumber $_.DeviceId -ErrorAction SilentlyContinue | Get-Volume -ErrorAction SilentlyContinue | ForEach-Object { [PSCustomObject]@{ Letter = [string]$_.DriveLetter; Fs = [string]$_.FileSystem; Size = $_.Size; Free = $_.SizeRemaining; Health = $_.HealthStatus.ToString() } } } catch { }',
           '  [PSCustomObject]@{',
           '    Name = $_.FriendlyName',
           '    Media = $_.MediaType.ToString()',
+          '    Bus = $_.BusType.ToString()',
           '    Health = $_.HealthStatus.ToString()',
           '    Op = $_.OperationalStatus.ToString()',
           '    Size = $_.Size',
+          '    Serial = $_.SerialNumber',
+          '    Firmware = $_.FirmwareVersion',
           '    Temp = $(if ($rel) { $rel.Temperature } else { $null })',
           '    Wear = $(if ($rel) { $rel.Wear } else { $null })',
           '    POH = $(if ($rel) { $rel.PowerOnHours } else { $null })',
-          '    ReadErr = $(if ($rel) { $rel.ReadErrorsTotal } else { $null })',
-          '    WriteErr = $(if ($rel) { $rel.WriteErrorsTotal } else { $null })',
+          '    PowerCycle = $(if ($rel) { $rel.PowerCycleCount } else { $null })',
+          '    StartStop = $(if ($rel) { $rel.StartStopCycleCount } else { $null })',
+          '    LoadUnload = $(if ($rel) { $rel.LoadUnloadCycleCount } else { $null })',
+          '    ReadErrCorr = $(if ($rel) { $rel.ReadErrorsCorrected } else { $null })',
+          '    ReadErrUncorr = $(if ($rel) { $rel.ReadErrorsUncorrected } else { $null })',
+          '    WriteErrCorr = $(if ($rel) { $rel.WriteErrorsCorrected } else { $null })',
+          '    WriteErrUncorr = $(if ($rel) { $rel.WriteErrorsUncorrected } else { $null })',
+          '    Volumes = $vols',
           '  }',
           '}',
           'if (-not $disks) { $disks = @() }',
-          '$disks | ConvertTo-Json -Compress | Out-File -Encoding UTF8 "' + HEALTH_FILE + '"'
+          '$disks | ConvertTo-Json -Compress -Depth 4 | Out-File -Encoding UTF8 "' + HEALTH_FILE + '"'
         ].join('\n')
         const r = await runPowerShell(script)
         const raw = await readJsonFile(HEALTH_FILE)
@@ -614,14 +626,23 @@ return {
         const arr = Array.isArray(raw) ? raw : [raw]
         const disks = arr.filter(function(d) { return d && d.Name }).map(function(d) {
           const g = gradeHealth(d)
+          const num = function(v) { return typeof v === 'number' ? v : null }
+          const vols = Array.isArray(d.Volumes) ? d.Volumes.map(function(v) {
+            const size = v && typeof v.Size === 'number' ? v.Size : null
+            const free = v && typeof v.Free === 'number' ? v.Free : null
+            return {
+              letter: v ? String(v.Letter || '') : '', fs: v ? String(v.Fs || '') : '',
+              size: size, free: free, health: v ? String(v.Health || '') : ''
+            }
+          }).filter(function(v) { return v.letter || v.size }) : []
           return {
-            name: d.Name, media: d.Media || '未知', health: d.Health || '未知', op: d.Op || '未知',
-            size: d.Size ? Number(d.Size) : null,
-            temp: typeof d.Temp === 'number' ? d.Temp : null,
-            wear: typeof d.Wear === 'number' ? d.Wear : null,
-            poh: typeof d.POH === 'number' ? d.POH : null,
-            readErr: typeof d.ReadErr === 'number' ? d.ReadErr : null,
-            writeErr: typeof d.WriteErr === 'number' ? d.WriteErr : null,
+            name: d.Name, media: d.Media || '未知', bus: d.Bus || '未知', health: d.Health || '未知', op: d.Op || '未知',
+            size: d.Size ? Number(d.Size) : null, serial: d.Serial || '', firmware: d.Firmware || '',
+            temp: num(d.Temp), wear: num(d.Wear), poh: num(d.POH),
+            powerCycle: num(d.PowerCycle), startStop: num(d.StartStop), loadUnload: num(d.LoadUnload),
+            readErrCorr: num(d.ReadErrCorr), readErrUncorr: num(d.ReadErrUncorr),
+            writeErrCorr: num(d.WriteErrCorr), writeErrUncorr: num(d.WriteErrUncorr),
+            volumes: vols,
             grade: g.level, issues: g.issues
           }
         })
@@ -639,8 +660,8 @@ return {
       else if (h === 'warning') issues.push('设备状态 Warning')
       if (typeof d.Wear === 'number' && d.Wear > 80) issues.push('SSD 寿命已用 ' + d.Wear + '%')
       if (typeof d.Temp === 'number' && d.Temp > 55) issues.push('温度 ' + d.Temp + '°C')
-      if (typeof d.ReadErr === 'number' && d.ReadErr > 0) issues.push('读取错误 ' + d.ReadErr)
-      if (typeof d.WriteErr === 'number' && d.WriteErr > 0) issues.push('写入错误 ' + d.WriteErr)
+      if ((typeof d.ReadErrUncorr === 'number' && d.ReadErrUncorr > 0) || (typeof d.WriteErrUncorr === 'number' && d.WriteErrUncorr > 0)) issues.push('存在不可纠正读写错误')
+      if (typeof d.ReadErrCorr === 'number' && d.ReadErrCorr > 1000) issues.push('读纠错次数偏高（' + d.ReadErrCorr + '）')
       if (issues.length === 0) return { level: '健康', issues: [] }
       if (h === 'unhealthy' || (typeof d.Wear === 'number' && d.Wear > 90)) return { level: '危险', issues: issues }
       if (h === 'warning' || (typeof d.Wear === 'number' && d.Wear > 80)) return { level: '警告', issues: issues }
@@ -745,6 +766,10 @@ return {
     harness.handle('organize.plan', doOrganizePlan)
     harness.handle('organize.apply', doOrganizeApply)
     harness.handle('organize.rollback', doOrganizeRollback)
+    harness.handle('health.get', doHealth)
+    harness.handle('dedup.scan', function(args) { return doDedup({ cmd: 'scan', roots: args && args.roots, minBytes: args && args.minBytes }) })
+    harness.handle('dedup.hardlink', function(args) { return doDedup({ cmd: 'hardlink', groups: (args && args.groups) || [] }) })
+    harness.handle('dedup.rollback', function() { return doDedup({ cmd: 'rollback' }) })
 
     // ---------- 动态工具（模型侧驱动） ----------
     const scanTool = harness.defineTool({
