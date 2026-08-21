@@ -14,9 +14,9 @@
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>false</SelfContained>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <Version>0.3.1</Version>
-    <FileVersion>0.3.1</FileVersion>
-    <InformationalVersion>0.3.1</InformationalVersion>
+    <Version>0.3.2</Version>
+    <FileVersion>0.3.2</FileVersion>
+    <InformationalVersion>0.3.2</InformationalVersion>
     <!-- WebView2 package added via: dotnet add package Microsoft.Web.WebView2 -->
   </PropertyGroup>
 

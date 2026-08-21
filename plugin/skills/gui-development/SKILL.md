@@ -62,7 +62,7 @@ installer/disk-clean-ui.iss + scripts/build-installer.ps1（框架依赖 + 缺�
 6. **Edge headless 验证**：必须 `--headless=new --disable-gpu --user-data-dir=<独立临时目录>`，
    旧 `--headless` 模式会空输出；校验 `Uncaught|ReferenceError|TypeError` 为零。
 7. **版本四源同步**：`bin/disk-clean.js VER`、`lib/serve.js VER`、`DiskCleanUi.csproj Version/FileVersion`、
-   `package.json version`（checksums.txt `version=` 来源）——bump 时一处不漏。
+   package.json version（checksums.txt `version=` 来源）——bump 时一处不漏。**替换必须用 Node 脚本**（PS 5.1 管道会写坏 UTF-8 中文，见 G46）。
 8. **构建顺序铁律**：改 serve.js/web → 重建 SEA（`scripts/build-sea.ps1`）→ `build-installer.ps1`；
    上传 Release 期间**不要重建源文件**（破坏半传文件）；`gui/stage|publish|dist` 全部 gitignore。
 9. **盘符容量唯一解 = `fs.statfsSync`**：`/api/drives` 返回 `{total,free,avail,used}`。

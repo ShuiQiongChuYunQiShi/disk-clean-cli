@@ -189,3 +189,44 @@ tr:hover td { background: rgba(255,255,255,.02); }
 .mono-list { max-height: 280px; overflow-y: auto; }
 
 pre.json { background: var(--bg2); border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12px; overflow: auto; max-height: 420px; }
+/* ---------- v0.3.2: report tabs / clean center / gauges ---------- */
+.rep-tabs {
+  display: flex; gap: 2px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  margin: 12px 0 12px;
+}
+.rep-tab {
+  padding: 7px 16px; cursor: pointer; font-size: 14px;
+  color: var(--muted); background: transparent; border: none;
+  border-bottom: 2px solid transparent; font-family: inherit;
+}
+.rep-tab:hover { color: var(--text); }
+.rep-tab.on { color: var(--accent2); border-bottom-color: var(--accent2); font-weight: 600; }
+.rep-pane.hidden { display: none; }
+
+.clean-card { margin-bottom: 10px; }
+.clean-card.danger-card { border-color: rgba(239, 83, 80, 0.45); }
+.est-bytes { color: var(--ok); font-weight: 600; }
+.collist { max-height: 150px; overflow: auto; margin-top: 6px; }
+.collist .item-line { border-bottom: 1px dashed rgba(128,128,128,.15); }
+
+.gauge { margin: 5px 0; }
+.gauge-l {
+  display: flex; justify-content: space-between;
+  font-size: 12px; color: var(--muted);
+}
+.gauge-b {
+  height: 6px; background: rgba(128,128,128,.18);
+  border-radius: 3px; overflow: hidden; margin-top: 3px;
+}
+.gauge-b > div { height: 100%; border-radius: 3px; }
+.gauges {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 18px; margin: 8px 0;
+}
+
+.chip {
+  display: inline-block; border: 1px solid var(--line); border-radius: 10px;
+  padding: 1px 9px; font-size: 11px; color: var(--muted); margin: 2px 4px 2px 0;
+}
+.health-banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }

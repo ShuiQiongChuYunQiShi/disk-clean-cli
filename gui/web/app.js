@@ -90,6 +90,16 @@ var I18N = {
     'sugg.clean': '清理', 'sugg.organize': '查看计划', 'sugg.view': '查看',
     'scan.scanning': '扫描中…', 'scan.finish': '扫描完成',
     'msg.noDrives': '请至少选择一个磁盘', 'msg.noReport': '尚无报告，请先扫描',
+    'rep.tabOverview': '概览', 'rep.tabClean': '清理中心', 'rep.tabDupes': '重复文件', 'rep.tabOrganize': '整理建议',
+    'rep.cleanHint': '点击「一键清理」会先预览再执行（移入回收站，可恢复），全部写入审计日志。统计为扫描时快照。',
+    'rep.cleanBtn': '一键清理', 'rep.cleaning': '清理中…',
+    'rep.dupNone': '本次扫描未发现重复文件。可到「高级 → 去重」做全盘深度查重。',
+    'rep.dupCoverage': '查重覆盖：', 'rep.dupGoDeep': '去深度查重 →',
+    'rep.dupCleanAll': '全部移入回收站', 'rep.keep': '保留', 'rep.delN': '删除 {n} 个副本',
+    'rep.orgGo': '去整理页生成计划 →', 'rep.orgNone': '未发现可整理的散落目录/文件',
+    'rep.healthOverall': '系统存储健康', 'rep.volTitle': '承载的卷', 'rep.refresh': '刷新',
+    'health.temp': '温度', 'health.wear': 'SSD 寿命已用', 'health.poh': '通电时间', 'health.powerCycle': '通电次数',
+    'health.startStop': '启停次数', 'health.loadUnload': '磁头加载次数',
   },
   en: {
     'nav.home': 'Home', 'nav.advanced': 'Advanced',
@@ -115,6 +125,16 @@ var I18N = {
     'sugg.clean': 'Clean', 'sugg.organize': 'Plan', 'sugg.view': 'View',
     'scan.scanning': 'Scanning…', 'scan.finish': 'Scan finished',
     'msg.noDrives': 'Select at least one drive', 'msg.noReport': 'No report yet — scan first',
+    'rep.tabOverview': 'Overview', 'rep.tabClean': 'Clean Center', 'rep.tabDupes': 'Duplicates', 'rep.tabOrganize': 'Organize',
+    'rep.cleanHint': 'One-click clean previews first, then moves to Recycle Bin (recoverable). All actions are audited. Stats are a pre-cleanup snapshot.',
+    'rep.cleanBtn': 'Clean', 'rep.cleaning': 'Cleaning…',
+    'rep.dupNone': 'No duplicates found in this scan. Use Advanced → Dedup for a full deep scan.',
+    'rep.dupCoverage': 'Dedup coverage: ', 'rep.dupGoDeep': 'Deep dedup →',
+    'rep.dupCleanAll': 'Move all to Recycle Bin', 'rep.keep': 'Keep', 'rep.delN': 'Delete {n} copies',
+    'rep.orgGo': 'Go to Organize →', 'rep.orgNone': 'No loose folders/files to organize',
+    'rep.healthOverall': 'Storage health', 'rep.volTitle': 'Volumes', 'rep.refresh': 'Refresh',
+    'health.temp': 'Temperature', 'health.wear': 'SSD wear used', 'health.poh': 'Power-on hours', 'health.powerCycle': 'Power cycles',
+    'health.startStop': 'Start/stop cycles', 'health.loadUnload': 'Head load cycles',
   }
 };
 var LANG = localStorage.getItem('dc_lang') || 'zh';
@@ -333,8 +353,27 @@ function renderReport(rep) {
     chart.appendChild(row);
   });
 
-  renderSuggestions(rep);
+  switchReportTab('overview');
+  renderCleanCenter(rep);
+  renderDupesPane(rep);
+  renderOrganizePane(rep);
 }
+
+/* ---------- 报告区 Tab 导航（替代长滚动） ---------- */
+function switchReportTab(name) {
+  document.querySelectorAll('#reportTabs .rep-tab').forEach(function (b) {
+    b.classList.toggle('on', b.getAttribute('data-rtab') === name);
+  });
+  ['overview', 'clean', 'dupes', 'organize'].forEach(function (n) {
+    var pane = $('rtab-' + n);
+    if (pane) pane.classList.toggle('hidden', n !== name);
+  });
+}
+(function wireReportTabs() {
+  document.querySelectorAll('#reportTabs .rep-tab').forEach(function (b) {
+    b.addEventListener('click', function () { switchReportTab(b.getAttribute('data-rtab')); });
+  });
+})();
 
 function suggestionBadge(type) {
   switch (type) {
@@ -348,67 +387,130 @@ function suggestionBadge(type) {
   }
 }
 
-function renderSuggestions(rep) {
-  var box = $('suggestions');
+function findSugg(rep, type) {
+  return (rep.suggestions || []).find(function (s) { return s.type === type; }) || null;
+}
+
+/* ---------- Tab：清理中心 ---------- */
+function renderCleanCenter(rep) {
+  var box = $('rtab-clean');
   box.innerHTML = '';
-  var sugg = rep.suggestions || [];
-  if (sugg.length === 0) { box.appendChild(el('div', 'notice', t('msg.noReport'))); return; }
-  var map = {};
-  sugg.forEach(function (s) { map[s.type] = s; });
+  box.appendChild(el('div', 'notice', t('rep.cleanHint')));
 
-  // --- organize-folders ---
-  var oc = rep.organizeCandidates || [];
-  if (oc.length > 0) {
-    var card = suggestionCard('organize-folders', oc.length + ' 项 (' + fmtBytes(oc.reduce(function (a, c) { return a + (c.bytes || 0); }, 0)) + ')');
-    addItemList(card.body, oc.slice(0, 30).map(function (c) {
-      return { path: c.path, bytes: c.bytes, extra: c.cat };
-    }));
-    card.action.onclick = function () { switchView('organize'); };
-    box.appendChild(card.root);
-  }
-
-  // --- stale-large ---
-  if (map['stale-large']) {
-    var sl = map['stale-large'];
-    var card2 = suggestionCard('stale-large', (sl.items || []).length + ' 项');
-    card2.action.textContent = t('sugg.view');
-    addItemList(card2.body, (sl.items || []).slice(0, 30).map(function (it) { return { path: it.path, bytes: it.bytes }; }));
-    card2.action.onclick = function () { confirmModal('Stale large files', buildItemListHtml((sl.items || []).slice(0, 100).map(function (it) { return { path: it.path, bytes: it.bytes }; })), 'OK', null, false); };
-    box.appendChild(card2.root);
-  }
-
-  // --- duplicates ---
-  if (map['duplicates']) {
-    var dup = map['duplicates'];
-    var groups = dup.groups || [];
-    var save = groups.reduce(function (a, g) { return a + (g.size || 0) * Math.max(0, (g.files || []).length - 1); }, 0);
-    var card3 = suggestionCard('duplicates', groups.length + ' 组（可释放约 ' + fmtBytes(save) + '）');
-    card3.action.textContent = t('sugg.view');
-    var rowHtml = groups.slice(0, 20).map(function (g) {
-      return '<div class="item-line"><span class="item-path">' + esc((g.files || [])[0] || '') + '</span><span class="item-bytes">' + fmtBytes(g.size) + ' ×' + (g.files || []).length + '</span></div>';
-    }).join('');
-    card3.body.innerHTML = '<div class="item-list">' + rowHtml + '</div>';
-    card3.action.onclick = function () { switchView('dedup'); };
-    box.appendChild(card3.root);
-  }
-
-  // --- recycle-bin / empty-dirs / junk-temp: actionable one-click clean ---
-  var cleanables = [
-    { type: 'recycle-bin', label: '回收站', bytes: binBytes(rep) },
-    { type: 'empty-dirs', label: '空文件夹', count: rep.emptyDirSample ? rep.emptyDirSample.length : 0 },
-    { type: 'junk-temp', label: '临时/缓存垃圾' }
+  var defs = [
+    { type: 'junk-temp', badge: 'sugg.junk-temp', title: t('sugg.junk-temp') },
+    { type: 'empty-dirs', badge: 'sugg.empty-dirs', title: t('sugg.empty-dirs') },
+    { type: 'stale-large', badge: 'sugg.stale-large', title: t('sugg.stale-large') }
   ];
-  cleanables.forEach(function (c) {
-    if (c.type === 'recycle-bin' && !map['recycle-bin']) return;
-    if (c.type === 'empty-dirs' && !(rep.emptyDirSample || []).length) return;
-    if (c.type === 'junk-temp' && !map['junk-temp'] && !(rep.emptyDirSample || []).length) return;
-    var card4 = suggestionCard(c.type, c.label + (c.bytes ? ' ' + fmtBytes(c.bytes) : c.count ? ' ' + c.count + ' 项' : ''));
-    card4.action.textContent = t('sugg.clean');
-    card4.action.onclick = function () {
-      cleanByType(c.type, c.label);
+  defs.forEach(function (def) {
+    var s = findSugg(rep, def.type);
+    var card = el('div', 'card clean-card');
+    var head = el('div', 'row gap');
+    head.innerHTML = '<span class="sugg-badge">' + esc(t(def.badge)) + '</span>' +
+      (s && s.estBytes ? '<span class="est-bytes">≈' + fmtBytes(s.estBytes) + '</span>' : '');
+    var btn = el('button', 'btn small primary', t('rep.cleanBtn'));
+    btn.disabled = !s;
+    btn.onclick = function () {
+      btn.disabled = true; btn.textContent = t('rep.cleaning');
+      cleanByType(def.type, def.title);
+      setTimeout(function () { btn.disabled = false; btn.textContent = t('rep.cleanBtn'); }, 1500);
     };
-    box.appendChild(card4.root);
+    head.appendChild(btn);
+    card.appendChild(head);
+    if (s) {
+      var paths = [];
+      if (def.type === 'junk-temp' && Array.isArray(s.paths)) paths = s.paths;
+      else if (def.type === 'empty-dirs') paths = (rep.emptyDirSample || []).slice(0, 200);
+      else if (def.type === 'stale-large') paths = (s.items || []).map(function (it) { return it.path; });
+      if (paths.length) {
+        var list = el('div', 'item-list collist');
+        paths.slice(0, 8).forEach(function (p) { list.appendChild(el('div', 'item-line', '<span class="item-path">' + esc(p) + '</span>')); });
+        if (paths.length > 8) list.appendChild(el('div', 'muted', '… 共 ' + paths.length + ' 项'));
+        card.appendChild(list);
+      }
+      if (s.note) card.appendChild(el('div', 'muted', esc(s.note)));
+    } else {
+      card.appendChild(el('div', 'muted', t('msg.noReport')));
+    }
+    box.appendChild(card);
   });
+
+  // 回收站（不可逆，单独卡）
+  var rb = findSugg(rep, 'recycle-bin');
+  var rbCard = el('div', 'card clean-card danger-card');
+  var rbHead = el('div', 'row gap');
+  rbHead.innerHTML = '<span class="sugg-badge">' + esc(t('sugg.recycle-bin')) + '</span>' +
+    (rb && rb.estBytes ? '<span style="color:var(--danger,#ef5350);font-weight:600">' + fmtBytes(rb.estBytes) + '</span>' : '');
+  var rbBtn = el('button', 'btn small danger', t('sugg.clean'));
+  rbBtn.disabled = !rb;
+  rbBtn.onclick = function () { cleanByType('recycle-bin', t('sugg.recycle-bin')); };
+  rbHead.appendChild(rbBtn);
+  rbCard.appendChild(rbHead);
+  rbCard.appendChild(el('div', 'muted', '⚠ 清空后不可恢复，执行前会二次确认。'));
+  box.appendChild(rbCard);
+}
+
+/* ---------- Tab：重复文件 ---------- */
+function renderDupesPane(rep) {
+  var box = $('rtab-dupes');
+  box.innerHTML = '';
+  var dup = findSugg(rep, 'duplicates');
+  var groups = dup ? (dup.groups || []) : [];
+  var cov = rep.summary && rep.summary.dupScan ? rep.summary.dupScan : null;
+
+  var info = el('div', 'notice');
+  var covTxt = cov
+    ? t('rep.dupCoverage') + (cov.userZoneSeen ? '用户区目录' : '无用户区（数据盘）') + ' + 扫描根浅层扩展（' + (cov.wideCandidates || 0) + ' 候选）'
+    : '';
+  info.innerHTML = esc(covTxt) + ' <a href="#" id="dupGoDeep" style="color:var(--accent,#4d9fff)">' + esc(t('rep.dupGoDeep')) + '</a>';
+  box.appendChild(info);
+  box.querySelector('#dupGoDeep').addEventListener('click', function (e) { e.preventDefault(); switchView('dedup'); });
+
+  if (!groups.length) { box.appendChild(el('div', 'notice', t('rep.dupNone'))); return; }
+
+  var save = groups.reduce(function (a, g) { return a + (g.removable || []).reduce(function (x, p) { return x + (g.size || 0); }, 0); }, 0);
+  var head = el('div', 'row gap');
+  head.appendChild(el('div', 'card-title', t('sugg.duplicates') + ' — ' + groups.length + ' 组 · 可释放 ≈' + fmtBytes(save)));
+  var allBtn = el('button', 'btn small danger', t('rep.dupCleanAll'));
+  allBtn.onclick = function () { cleanByType('duplicates', t('sugg.duplicates')); };
+  head.appendChild(allBtn);
+  box.appendChild(head);
+
+  var tbl = el('table');
+  tbl.innerHTML = '<tr><th>' + esc(t('rep.keep')) + '</th><th>' + esc(t('rep.delN').replace('{n}', '')) + '</th><th></th></tr>';
+  groups.slice(0, 50).forEach(function (g) {
+    var tr = el('tr');
+    tr.innerHTML = '<td class="mono-list" style="max-width:340px;overflow:hidden;text-overflow:ellipsis">' + esc(g.keep || '') + '</td>' +
+      '<td>' + (g.removable || []).length + ' × ' + fmtBytes(g.size) + (g.scope === 'wide' ? ' <span class="muted">(浅层)</span>' : '') + '</td>' +
+      '<td class="muted">' + esc((g.removable || []).slice(0, 2).join('　')) + ((g.removable || []).length > 2 ? ' …' : '') + '</td>';
+    tbl.appendChild(tr);
+  });
+  box.appendChild(tbl);
+}
+
+/* ---------- Tab：整理建议 ---------- */
+function renderOrganizePane(rep) {
+  var box = $('rtab-organize');
+  box.innerHTML = '';
+  var oc = rep.organizeCandidates || [];
+  var looseItems = [];
+  for (const s of (rep.suggestions || [])) {
+    if (s.type === 'organize-folders') for (const it of (s.items || [])) looseItems.push(it);
+  }
+  if (!oc.length && !looseItems.length) {
+    box.appendChild(el('div', 'notice', t('rep.orgNone')));
+    return;
+  }
+  var goBtn = el('button', 'btn primary', t('rep.orgGo'));
+  goBtn.onclick = function () { switchView('organize'); };
+  box.appendChild(goBtn);
+
+  var card = el('div', 'card');
+  card.appendChild(el('div', 'card-title', t('sugg.organize-folders') + ' — ' + (oc.length || looseItems.length) + ' 项'));
+  var items = oc.length ? oc.map(function (c) { return { path: c.path, bytes: c.bytes, extra: c.cat }; })
+    : looseItems.filter(function (it) { return it.kind !== 'program'; }).map(function (it) { return { path: it.path, bytes: it.bytes, extra: it.cat }; });
+  addItemList(card, items.slice(0, 30));
+  box.appendChild(card);
 }
 
 function binBytes(rep) {
@@ -550,29 +652,70 @@ function selectedPlanItems() {
 }
 
 /* ---------- health ---------- */
+var GRADE_RANK = { '健康': 0, '注意': 1, '警告': 2, '危险': 3 };
+function gaugeHtml(label, value, max, text, color) {
+  var ratio = max > 0 ? Math.min(1, (value || 0) / max) : 0;
+  return '<div class="gauge"><div class="gauge-l"><span>' + esc(label) + '</span><span>' + esc(text) + '</span></div>' +
+    '<div class="gauge-b"><div style="width:' + Math.max(2, Math.round(ratio * 100)) + '%;background:' + (color || 'var(--accent,#4d9fff)') + '"></div></div></div>';
+}
 function renderHealth() {
   var box = $('tab-health');
   box.innerHTML = '<div class="notice">读取磁盘健康数据…</div>';
   api('/api/health-check').then(function (j) {
     box.innerHTML = '';
-    (j.disks || []).forEach(function (d) {
+    var disks = j.disks || [];
+    if (!disks.length) { box.appendChild(el('div', 'notice', '（无磁盘健康数据）')); return; }
+    var worst = null;
+    disks.forEach(function (d) { if (!worst || (GRADE_RANK[d.grade] || 0) > (GRADE_RANK[worst.grade] || 0)) worst = d; });
+    var cnt = { ok: disks.filter(function (d) { return d.grade === '健康'; }).length, warn: disks.filter(function (d) { return d.grade === '注意' || d.grade === '警告'; }).length, danger: disks.filter(function (d) { return d.grade === '危险'; }).length };
+    var banner = el('div', 'card health-banner');
+    banner.innerHTML = '<span class="health-grade ' + (worst.grade === '健康' ? 'grade-ok' : worst.grade === '注意' ? 'grade-note' : worst.grade === '警告' ? 'grade-warn' : 'grade-danger') + '">' + esc(worst.grade) + '</span>' +
+      '<b>' + esc(t('rep.healthOverall')) + '：' + esc(worst.grade) + '</b>' +
+      (worst.issues && worst.issues.length ? '<span class="muted"> — ' + esc(worst.issues[0]) + '</span>' : '') +
+      '<span class="chip">✅ ' + cnt.ok + '</span>' +
+      (cnt.warn ? '<span class="chip" style="color:var(--warn,#f4b740)">⚠ ' + cnt.warn + '</span>' : '') +
+      (cnt.danger ? '<span class="chip" style="color:var(--danger,#ef5350)">⛔ ' + cnt.danger + '</span>' : '');
+    var refreshBtn = el('button', 'btn small', t('rep.refresh'));
+    refreshBtn.onclick = renderHealth;
+    banner.appendChild(refreshBtn);
+    box.appendChild(banner);
+
+    disks.forEach(function (d) {
       var gradeClass = d.grade === '健康' ? 'grade-ok' : d.grade === '注意' ? 'grade-note' : d.grade === '警告' ? 'grade-warn' : 'grade-danger';
       var card = el('div', 'health-card');
+      var chips = [d.media, d.bus, d.size ? fmtBytes(d.size) : null, d.firmware ? '固件 ' + d.firmware : null].filter(Boolean)
+        .map(function (c) { return '<span class="chip">' + esc(c) + '</span>'; }).join('');
+      var gauges =
+        gaugeHtml(t('health.temp'), d.temp, 80, d.temp != null ? d.temp + ' °C' : '—', d.temp > 55 ? '#ef5350' : d.temp > 45 ? '#f4b740' : '#3ddc84') +
+        gaugeHtml(t('health.wear'), d.wear, 100, d.wear != null ? d.wear + ' %' : '—', d.wear > 80 ? '#ef5350' : d.wear > 60 ? '#f4b740' : '#3ddc84') +
+        gaugeHtml(t('health.poh'), d.poh, 60000, d.poh != null ? Number(d.poh).toLocaleString() + ' h' : '—') +
+        gaugeHtml(t('health.powerCycle'), d.powerCycle, 50000, d.powerCycle != null ? Number(d.powerCycle).toLocaleString() : '—') +
+        gaugeHtml(t('health.startStop'), d.startStop, 100000, d.startStop != null ? Number(d.startStop).toLocaleString() : '—') +
+        gaugeHtml(t('health.loadUnload'), d.loadUnload, 600000, d.loadUnload != null ? Number(d.loadUnload).toLocaleString() : '—');
+      var errLine = '读纠错 ' + fmtNum(d.readErrCorr) + ' · 读不可纠 ' + fmtNum(d.readErrUncorr) +
+        ' · 写纠错 ' + fmtNum(d.writeErrCorr) + ' · 写不可纠 ' + fmtNum(d.writeErrUncorr) +
+        (d.serial ? ' · S/N ' + esc(String(d.serial).slice(0, 10)) : '');
+      var volHtml = '';
+      if (d.volumes && d.volumes.length) {
+        volHtml = '<div class="muted" style="margin-top:6px">' + esc(t('rep.volTitle')) + '</div><table>';
+        d.volumes.forEach(function (v) {
+          var usedPct = v.size && v.free != null && v.size > 0 ? Math.round(100 * (v.size - v.free) / v.size) : null;
+          volHtml += '<tr><td>' + esc(v.letter ? v.letter + ':' : '(无盘符)') + '</td><td>' + esc(v.fs || '—') + '</td><td>' +
+            (v.size ? fmtBytes(v.size) : '—') + '</td><td>' + (usedPct != null ? usedPct + '% 已用 · 余 ' + fmtBytes(v.free) : '—') + '</td></tr>';
+        });
+        volHtml += '</table>';
+      }
       card.innerHTML = '<div class="health-grade ' + gradeClass + '">' + esc(d.grade || '?') + '</div>' +
-        '<div class="grow"><div>' + esc(d.name) + '</div>' +
-        '<div class="health-meta">' + esc(d.media || '') + (d.size ? ' · ' + fmtBytes(d.size) : '') +
-        (d.temp != null ? ' · 温度 ' + esc(d.temp) + '°C' : '') +
-        (d.wear != null ? ' · 寿命已用 ' + esc(d.wear) + '%' : '') +
-        (d.poh != null ? ' · 通电 ' + esc(d.poh) + 'h' : '') +
-        (d.readErr != null || d.writeErr != null ? ' · 读错误 ' + (d.readErr == null ? 'N/A' : d.readErr) + ' / 写错误 ' + (d.writeErr == null ? 'N/A' : d.writeErr) : '') +
-        '</div>' +
+        '<div class="grow"><div><b>' + esc(d.name) + '</b> ' + chips + '</div>' +
+        (d.op && d.op !== 'OK' ? '<div class="issue">运行状态异常：' + esc(d.op) + '</div>' : '') +
         (d.issues && d.issues.length ? '<div class="issue">⚠ ' + d.issues.map(esc).join('；') + '</div>' : '') +
-        '</div>';
+        '<div class="gauges">' + gauges + '</div>' +
+        '<div class="muted">' + errLine + '</div>' + volHtml + '</div>';
       box.appendChild(card);
     });
-    if (!(j.disks || []).length) box.appendChild(el('div', 'notice', '（无磁盘健康数据）'));
   }).catch(function (e) { box.innerHTML = ''; toast(e.message, 'err'); });
 }
+function fmtNum(n) { return typeof n === 'number' ? Number(n).toLocaleString() : '—'; }
 
 /* ---------- dedup ---------- */
 var dedupGroups = null;

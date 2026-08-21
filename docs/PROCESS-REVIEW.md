@@ -206,6 +206,8 @@
 | G43 | 数据正确性验证缺方法 | — | 三重断言：`roots==所选`；`totalBytes ≤ 卷容量`；`categorySum==totalBytes`（D 全量 0 差）。D：138.2 万文件 / 19.7 万目录 / 587.26GB ✅ |
 | G44 | 正式安装跑进了 `%TEMP%\dsk-final-test\app`（E2E 残留） | **Inno Setup 检测到同 AppId 已注册时，沿用旧安装目录**而非 `DefaultDirName`；上一轮 E2E 临时安装的注册项没清理 | 正式安装前：读卸载注册表确认旧位置 → `unins000.exe /VERYSILENT` 卸载 → 删除残留目录 → **显式 `/DIR="C:\Program Files\disk-clean"`（带引号）** 全新安装；E2E 用临时目录安装后必须卸载或清理注册项 |
 | G45 | 带空格参数被 Start-Process 拆断 | `-ArgumentList '/DIR=C:\Program','Files\disk-clean'`（数组按空格拆）→ 装到 `C:\Program\` | ArgumentList 传**整体字符串**：`'/VERYSILENT ... /DIR="C:\Program Files\disk-clean"'` |
+| G46 | PS 5.1 管道改写把 UTF-8 中文文件写坏（serve.js 语法错误） | `Get-Content -Raw`（无 `-Encoding UTF8`）按 GBK 读 → `Set-Content -Encoding UTF8` 写 BOM+乱码；铁律 #1 的管道变体 | **版本 bump / 批量替换一律写 Node 脚本执行**（readFileSync/writeFileSync utf8 无 BOM），不走 PS 管道 |
+| G47 | `git checkout -- <file>` 回滚编码损坏时，把该文件上**未提交的功能改动一并抹掉**（index.html Tab 结构丢失，装出来还是旧界面且构建通过） | checkout 是整文件回退，不区分"坏改动"与"好改动" | checkout 前 `git diff <file>` 盘点未提交改动；checkout 后逐项重做并**用产物内容验证**（如 grep rep-tabs），不能只看构建成功 |
 
 好点（继续沿用）：
 - **用报告文件实证**定位"2.2TB"真相（不猜、不甩锅给容量算法）；`statfsSync` 实测与用户口述吻合。

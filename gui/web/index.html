@@ -17,7 +17,7 @@
       </svg>
       <div>
         <div class="logo-name">disk-clean</div>
-        <div class="logo-sub" id="verLabel">v0.3.0</div>
+        <div class="logo-sub" id="verLabel">v0.3.2</div>
       </div>
     </div>
     <nav id="nav">
@@ -68,18 +68,28 @@
 
       <div id="homeReport" class="hidden">
         <div id="scanRange" class="scan-range"></div>
-        <div class="row gap wrap">
-          <div class="stat-card"><div class="stat-num" id="statTotal">-</div><div class="stat-label" data-i18n="home.statTotal">总大小</div></div>
-          <div class="stat-card"><div class="stat-num" id="statFiles">-</div><div class="stat-label" data-i18n="home.statFiles">文件</div></div>
-          <div class="stat-card"><div class="stat-num" id="statDirs">-</div><div class="stat-label" data-i18n="home.statDirs">目录</div></div>
-          <div class="stat-card"><div class="stat-num" id="statEmpty">-</div><div class="stat-label" data-i18n="home.statEmpty">空目录</div></div>
-          <div class="stat-card"><div class="stat-num" id="statDur">-</div><div class="stat-label" data-i18n="home.statDur">耗时</div></div>
+        <div id="reportTabs" class="rep-tabs">
+          <button class="rep-tab on" data-rtab="overview" data-i18n="rep.tabOverview">概览</button>
+          <button class="rep-tab" data-rtab="clean" data-i18n="rep.tabClean">清理中心</button>
+          <button class="rep-tab" data-rtab="dupes" data-i18n="rep.tabDupes">重复文件</button>
+          <button class="rep-tab" data-rtab="organize" data-i18n="rep.tabOrganize">整理建议</button>
         </div>
-        <div class="card">
-          <div class="card-title" data-i18n="home.categories">类别分布</div>
-          <div id="categoryChart" class="chart"></div>
+        <div id="rtab-overview" class="rep-pane">
+          <div class="row gap wrap">
+            <div class="stat-card"><div class="stat-num" id="statTotal">-</div><div class="stat-label" data-i18n="home.statTotal">总大小</div></div>
+            <div class="stat-card"><div class="stat-num" id="statFiles">-</div><div class="stat-label" data-i18n="home.statFiles">文件</div></div>
+            <div class="stat-card"><div class="stat-num" id="statDirs">-</div><div class="stat-label" data-i18n="home.statDirs">目录</div></div>
+            <div class="stat-card"><div class="stat-num" id="statEmpty">-</div><div class="stat-label" data-i18n="home.statEmpty">空目录</div></div>
+            <div class="stat-card"><div class="stat-num" id="statDur">-</div><div class="stat-label" data-i18n="home.statDur">耗时</div></div>
+          </div>
+          <div class="card">
+            <div class="card-title" data-i18n="home.categories">类别分布</div>
+            <div id="categoryChart" class="chart"></div>
+          </div>
         </div>
-        <div id="suggestions"></div>
+        <div id="rtab-clean" class="rep-pane hidden"></div>
+        <div id="rtab-dupes" class="rep-pane hidden"></div>
+        <div id="rtab-organize" class="rep-pane hidden"></div>
       </div>
     </section>
 
