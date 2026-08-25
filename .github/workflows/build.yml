@@ -2,7 +2,10 @@ name: build
 
 on:
   push:
+    branches: ['master']
     tags: ['v*']
+  pull_request:
+    branches: ['master']
   workflow_dispatch:
 
 jobs:
@@ -19,10 +22,12 @@ jobs:
         shell: pwsh
         run: |
           Get-ChildItem bin,lib,scripts -Recurse -Filter *.js | ForEach-Object { node --check $_.FullName }
-          node --check test\engine-smoke.js
+          Get-ChildItem test -Filter *.js | ForEach-Object { node --check $_.FullName }
+          node --check gui\web\ui-kit.js
+          node --check gui\web\app.js
 
-      - name: Smoke test
-        run: node test/engine-smoke.js
+      - name: Test suite (smoke + edge + safety + parity)
+        run: node test/all.js
 
       - name: Install build deps
         run: npm install --save-dev esbuild postject

@@ -1,25 +1,33 @@
-// engine smoke test — 用相对路径 + 仓库内固定测试树（CI 可移植）
+// test/engine-smoke.js - minimal smoke test for lib/engine.js (CI portable)
 'use strict';
 const path = require('path');
 const fs = require('fs');
-const { run } = require('../lib/engine.js');
+const os = require('os');
 
-(async () => {
-  // 构造固定测试树（仓库内，CI 可移植）
-  const tree = path.join(__dirname, 'tree');
-  fs.mkdirSync(path.join(tree, 'sub'), { recursive: true });
-  fs.writeFileSync(path.join(tree, 'a.bin'), Buffer.alloc(300 * 1024, 1));
-  fs.writeFileSync(path.join(tree, 'sub', 'b.log'), 'hello ' + Date.now());
-  fs.writeFileSync(path.join(tree, 'sub', 'a.bin'), Buffer.alloc(300 * 1024, 1)); // 重复文件
-  fs.writeFileSync(path.join(tree, 'empty.log'), '');
+async function main() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsk-smoke-'));
+  try {
+    // Build test tree: user zone with duplicate files + junk temp dir
+    const docs = path.join(root, 'Users', 'Test', 'Documents');
+    fs.mkdirSync(docs, { recursive: true });
+    const buf = Buffer.alloc(1024 * 1024, 'x'); // 1MB
+    fs.writeFileSync(path.join(docs, 'a.docx'), buf);
+    fs.writeFileSync(path.join(docs, 'b.docx'), buf);
+    const tmp = path.join(root, 'Users', 'Test', 'AppData', 'Local', 'Temp');
+    fs.mkdirSync(tmp, { recursive: true });
+    fs.writeFileSync(path.join(tmp, 'junk.tmp'), 'junk');
 
-  const scan = await run(['--roots', tree, '--suggest']);
-  const sm = scan.data.summary || {};
-  console.log('summary keys:', Object.keys(sm));
-  console.log('summary:', JSON.stringify(sm));
-  console.log('suggestions:', (scan.data.suggestions || []).length);
-  console.log('category:', (scan.data.category || []).map(c => c.label + ':' + c.bytes).join(' '));
-  if (!sm.totalFiles || sm.totalFiles < 3) { console.error('SMOKE FAIL: files'); process.exit(1); }
-  if (!Array.isArray(scan.data.category) || scan.data.category.length === 0) { console.error('SMOKE FAIL: category'); process.exit(1); }
-  console.log('SMOKE OK');
-})();
+    const engine = require(path.join(__dirname, '..', 'lib', 'engine.js'));
+    const res = await engine.run(['--roots', root, '--suggest', '--report', path.join(root, 'r.json')]);
+    const out = res && res.data;
+    if (!out || !out.summary) throw new Error('no summary');
+    if (out.summary.totalFiles !== 3) throw new Error('totalFiles expected 3, got ' + out.summary.totalFiles);
+    const dups = (out.suggestions || []).find(s => s.type === 'duplicates');
+    if (!dups || !dups.groups.length) throw new Error('duplicates not found');
+    if (dups.groups[0].scope !== 'user') throw new Error('dup scope expected user');
+    console.log('smoke OK: totalFiles=3 dupGroups=1 scope=user');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+main().catch(e => { console.error(e); process.exit(1); });
