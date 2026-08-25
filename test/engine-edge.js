@@ -44,15 +44,34 @@ async function main() {
     fs.writeFileSync(path.join(docs, '.hidden'), '');
     fs.writeFileSync(path.join(docs, 'zero.dat'), '');
 
-    // 6. OneDrive-like placeholder (sparse/reparse point simulation via directory)
+    // 6. OneDrive-like placeholder (cloud sync zone): must be EXCLUDED from dup candidates & stale suggestions
     const od = path.join(root, 'Users', 'Test', 'OneDrive');
     fs.mkdirSync(od, { recursive: true });
     fs.writeFileSync(path.join(od, 'placeholder.docx'), buf); // real content for test env
+    // Make it stale+large so it would appear in stale-large if not excluded
+    const old = new Date(Date.now() - 800 * 24 * 3600 * 1000);
+    try { fs.utimesSync(path.join(od, 'placeholder.docx'), old, old); } catch (e) {}
 
     const engine = require(path.join(__dirname, '..', 'lib', 'engine.js'));
     const res = await engine.run(['--roots', root, '--suggest']);
     const out = res && res.data;
     assert(out && out.summary, 'summary exists');
+
+    // OneDrive file counted in stats but NOT in destructive suggestions
+    const odInStats = out.topFiles.some(f => f.path.toLowerCase().indexOf('onedrive') >= 0);
+    console.log('OneDrive in stats (expected true): ' + odInStats);
+    const stale = (out.suggestions || []).find(s => s.type === 'stale-large');
+    if (stale) {
+      const leaked = (stale.items || []).some(it => String(it.path).toLowerCase().indexOf('onedrive') >= 0);
+      assert(!leaked, 'OneDrive path must NOT appear in stale-large suggestions');
+    }
+    const dups = (out.suggestions || []).find(s => s.type === 'duplicates');
+    if (dups) {
+      for (const g of dups.groups) {
+        const all = [g.keep].concat(g.removable || []);
+        assert(!all.some(p => String(p).toLowerCase().indexOf('onedrive') >= 0), 'OneDrive path must NOT appear in dup groups');
+      }
+    }
 
     // Baseline: base.bin + inner.txt + long.txt + .hidden + zero.dat + placeholder = at least 5
     assert(out.summary.totalFiles >= 5, 'totalFiles >= 5, got ' + out.summary.totalFiles);
@@ -60,7 +79,6 @@ async function main() {
     assert(out.summary.skipped, 'skipped object present');
 
     // Duplicates: only base.bin counted once (link.bin is a reparse point, engine skips symlinks as dirs)
-    const dups = (out.suggestions || []).find(s => s.type === 'duplicates');
     if (dups) {
       // If symlink was created, it may appear in bySize; but dedupZone filter keeps only user zone
       dups.groups.forEach(function(g){

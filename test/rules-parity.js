@@ -8,7 +8,8 @@ const { execFileSync } = require('child_process');
 function assert(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); }
 
 const repo = path.join(__dirname, '..');
-const helperSrc = process.env.DSK_HELPER || 'D:\\deepseekHerness\\windowsClear\\product\\disk-analyzer\\plugins\\dsk-helper.js';
+// Default to repo copy so CI runs this for real; override with DSK_HELPER env if needed
+const helperSrc = process.env.DSK_HELPER || path.join(repo, 'plugin', 'plugins', 'dsk-helper.js');
 
 (async () => {
   if (!fs.existsSync(helperSrc)) {

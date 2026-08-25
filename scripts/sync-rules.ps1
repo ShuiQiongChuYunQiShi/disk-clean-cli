@@ -1,9 +1,11 @@
-# sync-rules.ps1 - Sync lib/rules.js to all plugin copies (product/install/repo) and verify MD5.
-# Source of truth: lib/rules.js. Edit that file, then run this script.
+# sync-rules.ps1 - Sync lib/rules.js AND lib/engine-core.js artifacts to all plugin copies
+# Sources of truth: lib/rules.js, lib/engine-core.js. Edit those, then run this script.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$src = Join-Path $root 'lib\rules.js'
-if (-not (Test-Path $src)) { Write-Error "Not found: $src"; exit 1 }
+$srcRules = Join-Path $root 'lib\rules.js'
+$srcCore = Join-Path $root 'lib\engine-core.js'
+if (-not (Test-Path $srcRules)) { Write-Error "Not found: $srcRules"; exit 1 }
+if (-not (Test-Path $srcCore)) { Write-Error "Not found: $srcCore"; exit 1 }
 
 $dsts = @(
   'plugin\plugins\dsk-rules.js',
@@ -18,7 +20,7 @@ $wcTargets = @(
 )
 foreach ($t in $wcTargets) {
   New-Item -ItemType Directory -Force -Path (Split-Path $t) | Out-Null
-  Copy-Item $src $t -Force
+  Copy-Item $srcRules $t -Force
   Write-Output "synced -> $t"
 }
 
@@ -26,7 +28,7 @@ foreach ($t in $wcTargets) {
 foreach ($rel in $dsts) {
   $dst = Join-Path $root $rel
   New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null
-  Copy-Item $src $dst -Force
+  Copy-Item $srcRules $dst -Force
   Write-Output "synced -> $dst"
 }
 
@@ -37,13 +39,13 @@ $installTargets = @(
 )
 foreach ($t in $installTargets) {
   if (Test-Path (Split-Path $t)) {
-    Copy-Item $src $t -Force
+    Copy-Item $srcRules $t -Force
     Write-Output "synced -> $t"
   }
 }
 
-# verify
-$srcHash = (Get-FileHash $src -Algorithm MD5).Hash
+# verify rules
+$srcHash = (Get-FileHash $srcRules -Algorithm MD5).Hash
 $allOk = $true
 $allTargets = @()
 $allTargets += $wcTargets
@@ -52,7 +54,28 @@ $allTargets += $installTargets
 foreach ($t in $allTargets) {
   if (Test-Path $t) {
     $h = (Get-FileHash $t -Algorithm MD5).Hash
-    if ($h -ne $srcHash) { $allOk = $false; Write-Warning "MD5 mismatch: $t" }
+    if ($h -ne $srcHash) { $allOk = $false; Write-Warning "MD5 mismatch (rules): $t" }
   }
 }
-if ($allOk) { Write-Output "All MD5 match: $srcHash" } else { exit 1 }
+if ($allOk) { Write-Output "All MD5 match (rules): $srcHash" } else { exit 1 }
+
+# --- engine-core artifacts (generated with DO NOT EDIT header) ---
+$header = "// THIS FILE IS GENERATED FROM lib/engine-core.js - DO NOT EDIT`n// Source: lib/engine-core.js`n"
+$coreContent = Get-Content $srcCore -Raw -Encoding UTF8
+$hash12 = (Get-FileHash $srcCore -Algorithm SHA256).Hash.Substring(0,12)
+$withHeader = $header.Replace("DO NOT EDIT", "DO NOT EDIT ($hash12)") + $coreContent
+$coreTargets = @(
+  (Join-Path $root 'plugin\plugins\dsk-engine-core.js'),
+  (Join-Path $root 'plugin\plugins\disk-analyzer\dsk-engine-core.js'),
+  'D:\deepseekHerness\windowsClear\product\disk-analyzer\plugins\dsk-engine-core.js',
+  'D:\deepseekHerness\windowsClear\product\disk-analyzer\plugins\disk-analyzer\dsk-engine-core.js',
+  "$env:USERPROFILE\.dsh\.agent-presets\disk-analyzer\plugins\dsk-engine-core.js",
+  "$env:USERPROFILE\.dsh\.agent-presets\disk-analyzer\plugins\disk-analyzer\dsk-engine-core.js"
+)
+foreach ($t in $coreTargets) {
+  if (-not (Test-Path (Split-Path $t))) { continue }
+  New-Item -ItemType Directory -Force -Path (Split-Path $t) | Out-Null
+  [System.IO.File]::WriteAllText($t, $withHeader, (New-Object System.Text.UTF8Encoding($false)))
+  Write-Output "generated -> $t"
+}
+Write-Output "All MD5 match (rules): $srcHash + engine-core artifacts generated"

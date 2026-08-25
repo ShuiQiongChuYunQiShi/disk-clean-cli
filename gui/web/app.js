@@ -331,8 +331,9 @@ function renderReport(rep) {
   $('homeReport').classList.remove('hidden');
   var s = rep.summary || {};
   var rangeTxt = (s.roots || []).join('、') || '—';
+  var odNote = (s.dupScan && s.dupScan.cloudSyncSkipped) ? '<div class="notice" style="margin:6px 0">☁️ OneDrive 云端文件 ' + s.dupScan.cloudSyncSkipped + ' 个未参与查重与清理（避免触发云端下载与删除）</div>' : '';
   $('scanRange').innerHTML = '<span class="muted">扫描范围：</span>' + esc(rangeTxt) +
-    (s.status === 'cancelled' ? ' <span class="badge-warn">' + esc(t('msg.cancelledBadge')) + '</span>' : '');
+    (s.status === 'cancelled' ? ' <span class="badge-warn">' + esc(t('msg.cancelledBadge')) + '</span>' : '') + odNote;
   $('statTotal').textContent = fmtBytes(s.totalBytes);
   $('statFiles').textContent = s.totalFiles || 0;
   $('statDirs').textContent = s.totalDirs || 0;
@@ -469,6 +470,83 @@ function renderCleanCenter(rep) {
   rbCard.appendChild(rbHead);
   rbCard.appendChild(el('div', 'muted', '⚠ 清空后不可恢复，执行前会二次确认。'));
   box.appendChild(rbCard);
+
+  // 一键全清（仅低风险）：合并预览 junk-temp + empty-dirs → 单次确认 → 顺序执行
+  var bulkCard = el('div', 'card');
+  bulkCard.appendChild(el('div', 'card-title', '一键全清（仅低风险）'));
+  bulkCard.appendChild(el('div', 'muted', '自动清理「临时/缓存 + 空目录」两类（低风险）。中/高风险项需逐项确认，已分别在上方卡片列出。'));
+  var bulkBtn = el('button', 'btn primary', '一键全清（低风险）');
+  bulkBtn.onclick = function(){ bulkLowRiskClean(); };
+  bulkCard.appendChild(bulkBtn);
+  box.appendChild(bulkCard);
+
+  // 回收站恢复（仅本工具清理项）
+  var rbRestoreCard = el('div', 'card');
+  rbRestoreCard.appendChild(el('div', 'card-title', '回收站恢复（仅本工具清理项）'));
+  var rbListBtn = el('button', 'btn small', '查看可恢复项');
+  var rbRestoreBox = el('div', 'recycle-restore-box');
+  rbRestoreCard.appendChild(rbListBtn);
+  rbRestoreCard.appendChild(rbRestoreBox);
+  box.appendChild(rbRestoreCard);
+  rbListBtn.onclick = function(){
+    rbRestoreBox.innerHTML = '<div class="notice">读取回收站…</div>';
+    api('/api/recycle/list').then(function(j){
+      var items = j.items || [];
+      rbRestoreBox.innerHTML = '';
+      if (!items.length) { rbRestoreBox.appendChild(el('div','notice','暂无本工具清理的可恢复项（或回收站已清空）')); return; }
+      var info = el('div','muted','共 ' + items.length + ' 项（总计 ' + j.total + ' 项，匹配本工具 ' + j.matched + ' 项），勾选后恢复');
+      rbRestoreBox.appendChild(info);
+      var list = el('div','item-list collist');
+      var checks = [];
+      items.slice(0,100).forEach(function(it){
+        var line = el('div','item-line');
+        var cb = el('input',''); cb.type='checkbox'; cb.checked=false; cb.value=it.key;
+        checks.push(cb);
+        line.appendChild(cb);
+        line.appendChild(document.createTextNode(' ' + it.originalPath + ' (' + fmtBytes(it.size) + ' · ' + (it.deletedAt||'').slice(0,10) + ')'));
+        list.appendChild(line);
+      });
+      rbRestoreBox.appendChild(list);
+      var doBtn = el('button','btn small primary','恢复所选');
+      doBtn.onclick = function(){
+        var keys = checks.filter(function(c){return c.checked;}).map(function(c){return c.value;});
+        if (!keys.length) { toast('请先勾选要恢复的项'); return; }
+        confirmModal('确认恢复', '<p>将恢复 ' + keys.length + ' 项到原路径（同名自动改名）。</p>', t('common.confirm'), function(){
+          api('/api/recycle/restore', {keys: keys, dryRun: false}).then(function(r){
+            toast('✔ 已恢复 ' + (r.restored||0) + ' 项','ok');
+            rbRestoreBox.innerHTML='';
+          }).catch(function(e){ toast(e.message,'err'); });
+        });
+      };
+      rbRestoreBox.appendChild(doBtn);
+    }).catch(function(e){ rbRestoreBox.innerHTML='<div class="notice" style="color:var(--danger)">读取失败：'+esc(e.message)+'</div>'; });
+  };
+}
+
+function bulkLowRiskClean(){
+  var types = ['junk-temp','empty-dirs'];
+  var labels = [t('sugg.junk-temp'), t('sugg.empty-dirs')];
+  var previews = [];
+  var idx = 0;
+  function nextPreview(){
+    if (idx >= types.length) {
+      var note = previews.map(function(p,i){ return labels[i] + '：' + (p.note||'') + (p.estBytes?' ≈'+fmtBytes(p.estBytes):''); }).join('<br>');
+      confirmModal('一键全清（低风险）— 确认执行', '<p>'+note+'</p><p class="muted">将按顺序执行两类清理（移入回收站，可恢复）。全部写入审计日志。</p><label style="display:flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="rpBulk" checked> 创建系统还原点</label>', t('common.run'), function(){
+        var doRp=false; try{var c=document.getElementById('rpBulk'); if(c) doRp=c.checked;}catch(e){}
+        var seq=0;
+        function nextExec(){
+          if(seq>=types.length){ toast('✔ 低风险清理完成','ok'); toast(t('msg.staleStats'),''); return; }
+          var body={type: types[seq], paths: [], dryRun: false};
+          if(doRp && seq===0) body.restorePoint=true;
+          api('/api/clean', body).then(function(){ seq++; nextExec(); }).catch(function(e){ toast('✗ '+labels[seq]+': '+e.message,'err'); seq++; nextExec(); });
+        }
+        nextExec();
+      });
+      return;
+    }
+    api('/api/clean', {type: types[idx], paths: [], dryRun: true}).then(function(j){ previews.push(j); idx++; nextPreview(); }).catch(function(e){ previews.push({note: e.message, estBytes:0}); idx++; nextPreview(); });
+  }
+  nextPreview();
 }
 
 /* ---------- Tab：重复文件 ---------- */

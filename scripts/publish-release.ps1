@@ -1,8 +1,8 @@
 # publish-release.ps1 - One-command GitHub Release publish
-# Usage: powershell -File scripts/publish-release.ps1 <ver>
-#   e.g. powershell -File scripts/publish-release.ps1 0.4.0
+# Usage: powershell -File scripts/publish-release.ps1 <ver> [-PublishNpm]
+#   e.g. powershell -File scripts/publish-release.ps1 0.4.1 -PublishNpm
 # Requires: $env:GH_TOKEN (fine-grained PAT), gh at C:\Program Files\GitHub CLI\gh.exe or in PATH
-param([string]$ver)
+param([string]$ver, [switch]$PublishNpm)
 $ErrorActionPreference = 'Continue'
 if (-not $ver) { Write-Error "Usage: publish-release.ps1 <ver>  e.g. 0.4.0"; exit 1 }
 if ($ver -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Version must be x.y.z"; exit 1 }
@@ -79,6 +79,27 @@ if ($setupUrl) {
   if ($dlSha -ne $setupSha) { Write-Error "SHA mismatch!"; exit 1 }
   Write-Output "SHA verified: MATCH"
   Remove-Item $dl -Force -ErrorAction SilentlyContinue
+}
+
+if ($PublishNpm) {
+  $pkgVer = (Get-Content (Join-Path $root "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version
+  if ($pkgVer -ne $ver) { Write-Error "package.json version $pkgVer != $ver, abort npm publish"; exit 1 }
+  Write-Output "Publishing to npm (disk-clean@$ver)..."
+  $oldEAP2 = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $npmOut = & npm publish --access public 2>&1 | Out-String
+  $code = $LASTEXITCODE
+  $ErrorActionPreference = $oldEAP2
+  Write-Output $npmOut
+  if ($code -ne 0) {
+    if ($npmOut -match "OTP|one-time password|ENEEDAUTH|EOTP") {
+      Write-Warning "npm publish requires OTP/2FA - please run manually: npm publish"
+      Write-Output "GitHub release succeeded; npm publish needs manual OTP."
+      exit 0
+    }
+    Write-Error "npm publish failed (GitHub release succeeded)"
+    exit 1
+  }
+  Write-Output "npm publish succeeded"
 }
 
 Write-Output "Publish verified: $tag"

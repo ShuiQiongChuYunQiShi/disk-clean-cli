@@ -4,7 +4,7 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-const suites = ['engine-smoke.js', 'engine-edge.js', 'clean-safety.js', 'organize-safety.js'];
+const suites = ['engine-smoke.js', 'engine-edge.js', 'clean-safety.js', 'organize-safety.js', 'serve-integration.js'];
 // rules-parity is env-dependent (needs plugin copy); include if present
 if (fs.existsSync(path.join(__dirname, 'rules-parity.js'))) suites.push('rules-parity.js');
 
