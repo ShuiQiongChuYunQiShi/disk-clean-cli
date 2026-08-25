@@ -202,6 +202,19 @@
 > 编号说明：**阶段编号从本迭代重新起算（阶段一~七）**，不接续 v0.4.0 计划中的阶段一~五（那些为历史记录）。
 > 本轮聚焦：**真问题修复（安全/数据风险）→ 刹车线补硬 → 引擎核心架构单源 → 回收站恢复 → npm 分发线 → 文档债清偿**。
 
+### 已确认决策（2026-08-21）
+
+| 决策点 | 结论 |
+|---|---|
+| 版本 | **v0.4.1**（安全迭代非大版本） |
+| OneDrive | 简化方案：**过滤 + 明确提示「不处理」**，不做多层硬拒绝 |
+| 引擎合并 | 仓库内 require 上溯真共享 + 分发副本降级为带校验的构建产物 |
+| 回收站范围 | **A：仅本工具清理过的项**（审计日志精确匹配，不枚举无关删除） |
+| 一键全清 | 要，但**自动执行仅限低风险**（临时缓存+空目录）；中/高风险仍逐项用户同意；全程审计 |
+| npm 包名 | 裸名 `disk-clean`（尽快占坑） |
+| npm 发布 | 发布目标 = npmjs.com（全球 JS 注册表）；到阶段五时**提醒用户注册账号**，最终发布由用户执行或提供 automation token |
+| 主力入口 | **桌面版主力**持续打磨；插件面板功能同步 |
+
 ## 现状补充盘点（v0.4.0 后新发现）
 
 | # | 发现 | 严重度 | 说明 |
@@ -226,6 +239,7 @@
 | 1.2 | **Host 校验 + body 上限**：请求 Host 必须 ∈ {127.0.0.1:port, localhost:port} 否则 403；Content-Length > 8MB 返回 413 | `lib/serve.js` | WebView2 正常访问不受影响；伪造 Host 被拒；超大 body 413 |
 | 1.3 | **health 缓存与节流**：`/api/health-check` 服务端结果缓存 TTL 30s；`appendHistory` 同盘写入间隔 ≥60s | `lib/serve.js`、`lib/health.js`、插件双 host 对齐 | 连续两次调用第二次 <100ms；60s 内多次 check 历史仅 +1 条 |
 
+| 1.4 | **审计日志轮转**：~/.disk-clean 审计与 .dsk-audit.json 超过 1000 条时修剪保留最近 1000 条（防无限增长） | lib/audit.js、插件 host | 超限后写入自动修剪；最近记录不丢 |
 **工作量**：M（1 天）｜**依赖**：无
 
 ---
@@ -280,16 +294,17 @@
 
 ---
 
-## 阶段四（P1）：回收站定向恢复（本轮做）
+## 阶段四（P1）：回收站恢复（仅本工具清理项）+ 清理体验
 
 | # | 任务 | 涉及文件 | 验收 |
 |---|---|---|---|
-| 4.1 | `lib/recyclebin.js`：**主方案解析 `$I/$R` 文件对**（Win10 格式确定性强：8B size + 8B filetime + UTF16 原路径），枚举各卷 `$Recycle.Bin\<SID>\`；Shell.Application 作降级兜底。`list()` 返回 {name, originalPath, size, deletedAt, drive}；`restore(keys)` 移回原路径（同名冲突自动加后缀 `(restored)`） | 新建 `lib/recyclebin.js` | 真实删除临时文件后 list 可见、restore 后内容逐字节一致、原路径复原 |
-| 4.2 | API：`GET /api/recycle/list`、`POST /api/recycle/restore {keys:[…]}`（鉴权同其他端点；默认 dryRun 预览） | `lib/serve.js` | 无 token 401；dryRun 不动文件 |
-| 4.3 | UI：清理中心 Tab 底部「回收站恢复」入口 → 列表（原路径/大小/删除时间，勾选）→ 恢复（确认弹窗）→ 结果 toast + 审计 | `gui/web/app.js`、i18n | UI 全流程可用；审计新增 type=recycle-restore |
-| 4.4 | 测试 `test/recycle-restore.js`：删→列→恢复→内容比对；$I 解析对 Win10 格式断言 | 新建 | 接入 all.js |
+| 4.1 | `lib/recyclebin.js` 枚举能力：**主方案解析 `$I/$R` 文件对**（Win10 格式：8B size + 8B filetime + UTF16 原路径），枚举各卷 `$Recycle.Bin\<SID>\`；Shell.Application 降级兜底。内部能力，返回全量 {name, originalPath, size, deletedAt, drive, key} | 新建 `lib/recyclebin.js` | 枚举真实回收站可见已删项 |
+| 4.2 | **审计匹配（决策 A 的核心）**：`list()` 结果 ∩ 审计日志记录（originalPath 精确匹配 + 删除时间窗 ±5min）→ 仅标记「本工具清理项」；API `GET /api/recycle/list` 默认只返回匹配项；`POST /api/recycle/restore {keys}`（dryRun 默认 true，还原同名冲突自动加后缀 `(restored)`，写审计 type=recycle-restore） | `lib/serve.js`、`lib/audit.js` | 无 token 401；dryRun 不动文件；非本工具删除的项不出现 |
+| 4.3 | UI：清理中心 Tab 底部「回收站恢复」入口 → 仅显示审计匹配项（原路径/大小/删除时间，勾选）→ 恢复确认弹窗 → toast + 审计 | `gui/web/app.js`、i18n | UI 全流程可用 |
+| 4.4 | 测试 `test/recycle-restore.js`：工具清理临时文件 → list 可见且匹配审计 → restore 后内容逐字节一致、原路径复原 | 新建 | 接入 all.js |
+| 4.5 | **一键全清（仅低风险批量）**：合并预览 junk-temp + empty-dirs 两类 → **单次确认** → 顺序执行 → 汇总 toast；每类型独立写审计日志。中/高风险卡（stale-large/duplicates/recycle-bin）**维持独立卡片与逐项确认不变**，文案标注「需单独确认」 | `gui/web/app.js` | 一键全清后两类均执行且有各自审计记录；中高风险不受影响 |
 
-**工作量**：L（2 天）｜**风险**：中（跨系统 $I 版本差异 → 主方案限定 Win10 格式 + 兜底方案；还原冲突改名策略明确）
+**工作量**：L（2 天）｜**风险**：中（$I 版本差异限 Win10 格式 + 兜底；审计时间窗匹配需容错时钟偏差）
 
 ---
 
@@ -301,7 +316,7 @@
 | 5.2 | README 增 npm 安装章节（`npm i -g disk-clean` 用法 + 与 GUI/插件形态关系） | `README.md` | 三条安装路径并列清晰 |
 | 5.3 | 发布链路集成：`publish-release.ps1` 增加 `-PublishNpm` 开关（GitHub 步骤成功后 `npm publish`；需 OTP 时输出提示转人工）＋失败不阻塞 GitHub 部分 | `scripts/publish-release.ps1` | 干跑验证开关逻辑 |
 | 5.4 | **发布文档更新**：RELEASE-PLAYBOOK §4 增补 npm SOP（账号/OTP/版本一致性检查：tag == package.json 才允许 publish） | `docs/RELEASE-PLAYBOOK.md` | 文档与脚本一致 |
-| 5.5 | 首次 `npm publish`（若遇账号/OTP/2FA 转人工执行） | — | npm 页面可见 v0.4.1 |
+| 5.5 | 首次 `npm publish`：**到本步时提醒用户**——注册 npmjs.com 账号（用户名/邮箱/验证）后二选一：①用户终端执行最后命令（需账号+OTP）②提供 automation token 代发 | — | npm 页面可见 v0.4.1 |
 
 **工作量**：M（1 天）｜**依赖**：v0.4.0 阶段四底座已具备（bump/publish 脚本）；阶段二完成后可跑 prepublishOnly
 
