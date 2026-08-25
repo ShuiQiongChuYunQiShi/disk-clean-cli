@@ -199,6 +199,11 @@ disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB�
   高级 8 Tab（organize/health/dedup/quota/mft/schedule/config/audit）。
 - 双语 i18n：`data-i18n` 属性 + `localStorage` 切换（zh 默认 / en）；SVG-free（CSS bar 图）。
 - 清理/整理一律「预览 → 确认弹窗 → 执行」双确认；毁伤操作接口后端默认 dryRun。
+- **v0.3.2 新增：报告 Tab**（概览 / 清理中心 / 重复文件 / 整理建议）替代长滚动建议区；
+  清理中心新增 **stale-large** 一键清理（clean.js validate+serve extract）、
+  **一键全清（仅低风险 junk-temp+empty-dirs 合并预览）**；复选框旁**创建系统还原点**（默认勾选，透传 restorePoint:true）。
+- **v0.3.2 查重扩展**：扫描期候选 = 用户区 ∪ 扫描根浅层（fallback，`dupScan.wideCandidates`），summary.dupScan 覆盖说明；UI 提示「深层：全盘深度查重」按钮深度调 `/api/dedup`。
+- **v0.4.1 补：OneDrive 云同步段不参与查重与破坏性建议**（防哈希触发静默下载），扫描统计保留；UI/report 显著提示条「OneDrive 云端文件不参与查重与清理」。
 - **选择策略（v0.3.1）**：首次启动默认只选 D:（不存在则取第一个盘）、`localStorage` 记忆
   上次选择；「全选/清空」快捷按钮；`syncDriveCards()` 保证卡片视觉态与数组一致。
   绝不做"默认全选"——v0.3.0 曾因全选+点击切换导致"以为选 D 实际扫 C+E+F（2.2TB）"。
@@ -266,6 +271,8 @@ scripts/build-installer.ps1
       （旧 `--headless` 模式可能空输出，必须 `--headless=new` + 独立 profile）
 - [ ] PS 5.1 调 API 发中文 JSON 用 `[Text.Encoding]::UTF8.GetBytes($json)` 字节体
       （字符串体默认 Latin-1，中文变 `???` 造成假 400）
+- [ ] **v0.3.2 报告 Tab**：`rep-tabs`/`ui-kit.js` 随 `gui/web/*` 进入 stage；OneDrive 占位跳过提示条可见；清理中心 4 卡 + 全清低风险（仅 junk-temp/empty-dirs 自动）
+- [ ] **v0.4.1 健康趋势**：`health.trend` 字段、`health-history.json` 节流 60s/缓存 30s、health Tab 趋势 sparklines、卷映射表
 - [ ] 安装器静默安装 EXIT=0 → 启动即用（引擎 spawn 日志出现 serve 行）
 - [ ] **从 GitHub 下载 → Get-FileHash 与本地一致 → 静默安装 → 启动 → 健康 → 页面 200**
       （完整用户路径才是发布成功的判据；`dist/SHA256SUMS.txt` 是发布时组装的，build-sea
@@ -366,6 +373,11 @@ checksums.txt           （version=<版本> 行，构建产物）
 15. PowerShell HTTP 测试发中文 JSON：`Invoke-WebRequest -Body ([Text.Encoding]::UTF8.
     GetBytes($json))` + `Content-Type: application/json; charset=utf-8`（字符串体 Latin-1
     会把中文变 `???`，误报 400）。
+16. **版本 bump 必须用 Node 脚本**（`scripts/bump-version.js <from> <to>`）：PS 5.1 管道 `Get-Content -Raw` 不带 `-Encoding UTF8` 按 GBK 读→ `Set-Content -Encoding UTF8` 写 BOM+乱码（G46 专项）；附带 `verLabel` 在 `index.html` 的正则回退。
+17. **git checkout 去污前必 `git diff <file>` 盘点**（G47）：`checkout -- <file>` 是整文件回退，会把未提交的好改动一并抹掉；用产物内容验证（grep rep-tabs）。
+18. **`push.ps1` 误报 G50**：`--quiet` 下 `2>&1` 合并让 PS5.1 把 git stderr 转 ErrorRecord 而误判成功——改为 stderr 重定向到临时文件 + API 兜底（`ls-remote` 两通道 + GH API）。
+19. **`publish-release.ps1` G48/G49**：`((git tag -l $tag) | Out-String).Trim()` 兼容 null；`$ErrorActionPreference='Continue'` + `$LASTEXITCODE` 判成功。
+20. **OneDrive 云同步段需显式排除**：查重哈希会触发占位文件静默下载；扫描统计保留但 `bySize/wide` 及破坏性建议项过滤 `\onedrive\` 段，UI/report 显著提示条「不参与查重与清理」。
 
 ---
 
