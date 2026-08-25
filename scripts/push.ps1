@@ -1,15 +1,17 @@
 # push.ps1 - git push with proxy fallback and ls-remote verification
 # Usage: powershell -File scripts/push.ps1
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 
 function TryPush($extraArgs) {
-  $args = @('push','origin','master','--quiet') + $extraArgs
-  $out = & git @args 2>&1 | Out-String
+  $oldEAP = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  $gitArgs = @('push','origin','master','--quiet') + $extraArgs
+  $out = & git @gitArgs 2>&1 | Out-String
   # Suppress NativeCommandError for git's stderr in PS5.1 (exit code is the real signal)
   $code = $LASTEXITCODE
-  if ($out.Trim()) { Write-Output $out }
+  $ErrorActionPreference = $oldEAP
+  if ($out.Trim() -and $out.Trim() -ne 'Everything up-to-date') { Write-Output $out.Trim() }
   return $code -eq 0
 }
 
