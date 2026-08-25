@@ -192,3 +192,156 @@
 | 回收站 $I/$R 解析跨系统差异 | 中 | 先 PowerShell Shell.Application 方案，验证后再扩展 |
 | 深度查重结果删除越权 | 中 | 3.2.3 二选一决策（仅硬链接 or 新增按组白名单校验），执行前评审 |
 | 健康趋势文件无限增长 | 低 | 每组上限 100 条 + 修剪 |
+
+---
+---
+
+# v0.5.0 迭代计划（本轮，待执行）
+
+> 状态：**规划完成、等确认后开工** ｜ 前版 v0.4.0 各阶段已全部完成并发布
+> 背景：外部锐评（⭐4/5）指出测试缺失与上帝文件两大软肋；v0.4.0 已补齐测试套件（test/all.js 5 套件全绿 + CI 全量接入）。
+> 本轮聚焦：**真问题修复（安全/数据风险）→ 刹车线补硬 → 引擎核心架构单源 → npm 分发线 → 回收站恢复 → 文档债清偿**。
+
+## 现状补充盘点（v0.4.0 后新发现）
+
+| # | 发现 | 严重度 | 说明 |
+|---|---|---|---|
+| N1 | **OneDrive 占位文件脱水**：去重哈希打开"仅在线"占位文件会触发静默下载（可能拉 GB 级云端内容占满 C 盘）；且清理 OneDrive 文件虽进本地回收站，**云端副本同步删除**——"可恢复"承诺对云失效 | 🔴 高 | 扫描统计无害（stat 不触发下载），危害在哈希与破坏性建议两个环节 |
+| N2 | serve.js 无 Host 头校验 → DNS rebinding 暴露面（恶意网页把域名 rebind 到 127.0.0.1 绕过 CORS） | 🟠 中 | 本地+token 缓解，但刹车线不该靠运气 |
+| N3 | serve.js 无请求体大小上限 | 🟡 低 | 同上，顺手修 |
+| N4 | `/api/health-check` 每次调用都 spawn PowerShell（2-5s）且追加历史 → 快速切 Tab 产生噪声趋势点 | 🟡 中 | UX + 数据质量 |
+| N5 | `rules-parity.js` 默认指向本机绝对路径，CI 上静默 SKIP——**CI 实际只跑 4/5 套件，最关键的双端一致性没被守门** | 🟠 中 | 我上轮交付的缺陷 |
+| N6 | HTTP 层（鉴权/路由/静态白名单/防穿越）零自动化测试 | 🟠 中 | serve 是所有破坏性操作的闸门 |
+| N7 | `package.json` description 疑似编码损伤（`CLI 鈥?`）、缺 repository/bugs/homepage、scripts.check/smoke 过时 | 🟡 低 | npm 分发前必须清理 |
+| N8 | 文档债：RELEASE-PLAYBOOK §3.5 未跟上 v0.3.2–v0.4.0 桌面改动；GUI-PLAN 状态头停在 v0.3.x | 🟡 中 | SYNC-CHECKLIST 列了但没执行，复现了锐评警告的漂移 |
+| N9 | engine.js(48KB) 与 dsk-helper.js(~45KB) 核心逻辑仍为两份完整拷贝（阶段一只抽了规则表，未抽引擎逻辑） | 🟠 架构 | 锐评"上帝文件"+"复制缓解重复"的根源 |
+
+---
+
+## 阶段六（P0）：安全与正确性修复
+
+| # | 任务 | 涉及文件 | 验收 |
+|---|---|---|---|
+| 6.1 | **OneDrive 防脱水 + 破坏性排除**：①查重候选收集（bySize/bySizeWide）跳过路径含 `\onedrive\` 段的文件（不收集即不哈希不下载）；②stale-large / empty-dirs / duplicates 的建议项过滤 OneDrive 路径；③`lib/clean.js validate` 增加 OneDrive 路径硬拒绝（双保险，防服务端直接传参绕过）；④文案标注"云占位文件未参与哈希/不建议清理（删除会同步影响云端）"。扫描统计保留 OneDrive 数据（报告完整性不受影响） | `lib/engine.js`、`plugins/dsk-helper.js`（经 core/rules 机制）、`lib/clean.js`、`gui/web/app.js` i18n | 测试树含 `\OneDrive\` 占位文件：无 dup 候选、三类建议均不含该路径、clean.validate 拒绝；普通文件行为不变 |
+| 6.2 | **Host 校验 + body 上限**：请求 Host 必须 ∈ {127.0.0.1:port, localhost:port} 否则 403；Content-Length > 8MB 返回 413 | `lib/serve.js` | WebView2 正常访问不受影响；伪造 Host 被拒；超大 body 413 |
+| 6.3 | **health 缓存与节流**：`/api/health-check` 服务端结果缓存 TTL 30s；`appendHistory` 同盘写入间隔 ≥60s | `lib/serve.js`、`lib/health.js`、插件双 host 对齐 | 连续两次调用第二次 <100ms；60s 内多次 check 历史仅 +1 条 |
+
+**工作量**：M（1 天）｜**依赖**：无
+
+---
+
+## 阶段七（P0）：测试补强 —— 把 CI 刹车线变硬
+
+| # | 任务 | 涉及文件 | 验收 |
+|---|---|---|---|
+| 7.1 | rules-parity 默认 helper 路径改为仓库副本 `plugin/plugins/dsk-helper.js`（env 可覆盖），CI 真跑不再 SKIP | `test/rules-parity.js` | CI 日志出现 PASS rules-parity |
+| 7.2 | 新增 `test/serve-integration.js`：临时端口起 serve → 断言 ①无 token 401 ②带 token health/drives 200 ③clean dryRun 预览可用 ④静态 `../` 穿越 403/404 ⑤cancel 未知任务 404 ⑥伪造 Host 403 ⑦超大 body 413 | 新建 `test/serve-integration.js` | 全部断言通过，接入 all.js |
+| 7.3 | package.json 清理（配合阶段十）：description 乱码核实修复、补 repository/bugs/homepage、`scripts.test = node test/all.js`、check 覆盖全部 lib/gui 文件 | `package.json` | npm view 字段正常；npm test 可跑 |
+| 7.4 | OneDrive 用例并入 edge/safety 套件（6.1 的验收固化） | `test/engine-edge.js` 或新建 | CI 持续守门 |
+
+**工作量**：M（1 天）｜**依赖**：阶段六（6.2/6.3 的断言）
+
+---
+
+## 阶段八（P1）：架构 —— 引擎核心单源（结构化共享，非脚本副本）
+
+**设计定稿**（回应"换成副本不还是一个文件吗"）：
+
+```
+唯一可编辑源：lib/engine-core.js
+  （walk/pool/状态机/hashGroup/buildSuggestions/analyzeLooseDirs/finalize/
+    buildMarkdown/--dir/--organize/--fix-shortcuts/--restore-shortcuts 模式处理）
+
+仓库布局（开发态）：结构化共享，零拷贝
+  plugin/plugins/dsk-helper.js:
+    try { R = require('../../../lib/engine-core.js') }     ← 相对 require 上溯到仓库 lib/
+    catch { R = require('./dsk-engine-core.js') }          ← 分发布局回退到构建产物
+
+分发布局：plugins/dsk-engine-core.js 为「构建产物」而非第二源
+  - 文件头：GENERATED FROM lib/engine-core.js — DO NOT EDIT（含源哈希）
+  - scripts/build-plugin.js 从源生成（sync-rules.ps1 升级合并）
+  - 三重防漂移校验进 test/all.js：
+      ①rules-parity 行为一致（已有）
+      ②产物新鲜度：重新生成内容 === 已提交内容
+      ③DO-NOT-EDIT 头存在性
+```
+
+被否备选：插件 spawn 已安装桌面版 engine.exe（零副本但破坏预设"自包含安装即用"承诺）；纯脚本复制（用户否决：仍是拷贝）。
+
+| # | 任务 | 验收 |
+|---|---|---|
+| 8.1 | 抽取 `lib/engine-core.js`：导出 `run(argv)`（内部状态自包含），engine.js 变薄壳（argv 兼容 + main 入口 ~100 行） | `node bin/disk-clean.js scan …` 输出与抽取前逐字段一致 |
+| 8.2 | dsk-helper.js 改双路 resolve（上溯优先/产物回退），业务逻辑全部走 core | 插件扫描输出与桌面一致（rules-parity 守门） |
+| 8.3 | `sync-rules.ps1` 升级为 `build-plugin.js`：生成 rules + core 两类产物到三处 + MD5 + DO-NOT-EDIT 头 | 脚本一次跑完，产物校验通过 |
+| 8.4 | 防漂移三重校验进 all.js；SEA esbuild 打包验证（dist exe 冒烟） | CI 全绿；SEA exe 功能冒烟过 |
+| 8.5 | engine.js/dsk-helper.js 行数对比基线落盘 RULES-DIFF.md（预期各降至 <150 行） | 上帝文件批评闭环 |
+
+**工作量**：L（2 天）｜**风险**：中（require 上溯深度、SEA bundle、双入口兼容）｜**依赖**：阶段六/七先行（在干净基础上动刀）
+
+---
+
+## 阶段九（P1）：回收站定向恢复（P2 转正，本轮做）
+
+| # | 任务 | 涉及文件 | 验收 |
+|---|---|---|---|
+| 9.1 | `lib/recyclebin.js`：**主方案解析 `$I/$R` 文件对**（Win10 格式确定性强：8B size + 8B filetime + UTF16 原路径），枚举各卷 `$Recycle.Bin\<SID>\`；Shell.Application 作降级兜底。`list()` 返回 {name, originalPath, size, deletedAt, drive}；`restore(keys)` 移回原路径（同名冲突自动加后缀 `(restored)`） | 新建 `lib/recyclebin.js` | 真实删除临时文件后 list 可见、restore 后内容逐字节一致、原路径复原 |
+| 9.2 | API：`GET /api/recycle/list`、`POST /api/recycle/restore {keys:[…]}`（鉴权同其他端点；默认 dryRun 预览） | `lib/serve.js` | 无 token 401；dryRun 不动文件 |
+| 9.3 | UI：清理中心 Tab 底部「回收站恢复」入口 → 列表（原路径/大小/删除时间，勾选）→ 恢复（确认弹窗）→ 结果 toast + 审计 | `gui/web/app.js`、i18n | UI 全流程可用；审计新增 type=recycle-restore |
+| 9.4 | 测试 `test/recycle-restore.js`：删→列→恢复→内容比对；$I 解析对 Win10 格式断言 | 新建 | 接入 all.js |
+
+**工作量**：L（2 天）｜**风险**：中（跨系统 $I 版本差异 → 主方案限定 Win10 格式 + 兜底方案；还原冲突改名策略明确）
+
+---
+
+## 阶段十（P1）：npm 分发线（本轮加上）
+
+| # | 任务 | 涉及文件 | 验收 |
+|---|---|---|---|
+| 10.1 | 元数据清理：description 编码核实修复、repository/bugs/homepage、files 复核（bin/lib/README/LICENSE 已够）、`scripts.test=all.js`、`prepublishOnly=test/all.js` | `package.json` | `npm pack` 内容正确；npm test 可跑 |
+| 10.2 | README 增 npm 安装章节（`npm i -g disk-clean` 用法 + 与 GUI/插件形态关系） | `README.md` | 三条安装路径并列清晰 |
+| 10.3 | 发布链路集成：`publish-release.ps1` 增加 `-PublishNpm` 开关（GitHub 步骤成功后 `npm publish`；需 OTP 时输出提示转人工）＋失败不阻塞 GitHub 部分 | `scripts/publish-release.ps1` | 干跑验证开关逻辑 |
+| 10.4 | RELEASE-PLAYBOOK §4 增补 npm SOP（账号/OTP/版本一致性检查：tag == package.json 才允许 publish） | `docs/RELEASE-PLAYBOOK.md` | 文档与脚本一致 |
+| 10.5 | 首次 `npm publish`（若遇账号/OTP/2FA 转人工执行） | — | npm 页面可见 v0.5.0 |
+
+**工作量**：M（1 天）｜**依赖**：阶段四已完成（bump/publish 脚本底座）
+
+---
+
+## 阶段十一（P1）：文档债清偿（N8）
+
+| # | 任务 | 涉及文件 |
+|---|---|---|
+| 11.1 | RELEASE-PLAYBOOK §3.5 补 v0.3.2–v0.4.0 桌面改动（rep-tabs 报告 Tab / ui-kit / 健康趋势与增强 / 深度查重内嵌 / 年龄分布 / 还原点勾选 / 测试套件与 CI 全量接入） | `docs/RELEASE-PLAYBOOK.md` |
+| 11.2 | GUI-PLAN 状态头更新至 v0.4.0+ 并引用 OPTIMIZATION-PLAN | `docs/GUI-PLAN.md` |
+| 11.3 | 技能指针更新：gui-development / release-sop 补 v0.5.0 要点（新脚本、新测试、npm 线）＋三处同步 MD5 | 三份 SKILL.md ×3 位置 |
+| 11.4 | SYNC-CHECKLIST 本轮全勾归档 | `docs/SYNC-CHECKLIST.md` |
+
+**工作量**：S（0.5 天）
+
+---
+
+## 阶段十二：回归与 v0.5.0 发布
+
+| # | 任务 |
+|---|---|
+| 12.1 | 全量回归：`node test/all.js`（含新增 serve-integration / recycle-restore / parity 真跑）+ CLI 全命令 + 真机扫描三重断言 |
+| 12.2 | `bump-version.js 0.4.0 0.5.0` → `build-installer.ps1` → 静默安装验证（版本/健康 trend/页面 ui-kit+rep-tabs） |
+| 12.3 | `publish-release.ps1 0.5.0 -PublishNpm` → GitHub SHA 双向 MATCH + npm 上架确认 |
+| 12.4 | PROCESS-REVIEW 补 G50+（本轮踩坑）+ SYNC-CHECKLIST 归档 |
+
+---
+
+## 明确延后（backlog，非本轮）
+
+- `gui/web/app.js`（56KB）拆分 report-tabs/advanced-tabs：UI 层漂移危害低于数据层，待引擎核心合并稳定后评估
+- 回收站恢复的跨系统 $I 版本矩阵（Vista/Win8 老格式）
+- MFT/配额页深度增强
+
+## 本轮依赖顺序
+
+```
+阶段六(P0安全) → 阶段七(P0测试) → 阶段八(引擎核心) → 阶段九(回收站) ─┐
+                                        ├─ 阶段十(npm) ──────────────┤
+                                        └─ 阶段十一(文档) ───────────┴→ 阶段十二(发布)
+```
+（九/十/十一 三者相互独立，可并行或按需调序）
