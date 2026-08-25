@@ -8,6 +8,14 @@
 
 ---
 
+## What's new in v0.4.1
+
+- **OneDrive cloud-safe**: `\OneDrive\` files are counted but excluded from dedup hash and destructive suggestions; report/UI shows "OneDrive cloud files excluded (avoids silent download/delete)".
+- **Bulk low-risk clean**: Clean Center → "One-click clean (low-risk)" previews `junk-temp` + `empty-dirs` together, single confirm; medium/high-risk types still require per-card confirm.
+- **Health trend**: `/api/health-check` returns `trend` sparklines (last 20) with 60s history throttle + 30s cache; UI shows Temp/Wear/Error trends.
+- **Recycle restore (audit-matched)**: `GET /api/recycle/list` / `POST /api/recycle/restore` + Clean Center "Recycle restore" (scope A).
+- **Engine-core single source**: `lib/engine-core.js` is the sole editable core; `lib/engine.js` is a thin wrapper, plugin shims hybrid-require it.
+
 ## Why disk-clean?
 
 | Feature | disk-clean | WizTree | CCleaner | 360/火绒 |
@@ -22,6 +30,8 @@
 | Audit log (JSONL) of every action | ✅ | ❌ | ❌ | ❌ |
 | Readable **Markdown report (EN/ZH)** | ✅ | ❌ | ❌ | ❌ |
 | Recycle-bin safety (not permanent delete) | ✅ | ❌ | ✅ | ✅ |
+| OneDrive cloud-safe (stats kept, no hash/delete) | ✅ | ❌ | ❌ | ❌ |
+| Bulk low-risk one-click clean | ✅ | ❌ | ❌ | ❌ |
 | Open source, no telemetry, no ads | ✅ | ✅ | ❌ | ❌ |
 | AI integration (optional, via DSH) | ✅ (plugin) | ❌ | ❌ | ❌ |
 
