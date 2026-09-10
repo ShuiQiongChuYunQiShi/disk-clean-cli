@@ -34,6 +34,30 @@ function rep(file, a, b) {
 
 rep('lib/version.js', "const VERSION = '" + from + "';", "const VERSION = '" + to + "';");
 rep('package.json', '"version": "' + from + '"', '"version": "' + to + '"');
+// package-lock.json 有两个版本字段（顶层 version 与 packages[""].version）。
+// 从 v0.2.0 到 v0.5.0 它一直停在 0.1.0：bump 脚本没碰它，npm ci 也不校验版本字段，
+// 所以连续三个版本都没人发现。两个字段都用锚点精确替换，不用按值全局替换，
+// 避免误伤 lock 里其它 "version" 字段（依赖项的 version 也必须保持不变）。
+{
+  const p = path.join(__dirname, '..', 'package-lock.json');
+  const before = fs.readFileSync(p, 'utf8');
+  const rootRe = new RegExp('(^\\s{2}"version"\\s*:\\s*")' + from.replace(/\./g, '\\.') + '(")', 'm');
+  const pkgRe = new RegExp('("packages"\\s*:\\s*\\{\\s*""\\s*:\\s*\\{[^}]*?"version"\\s*:\\s*")' + from.replace(/\./g, '\\.') + '(")');
+  if (!rootRe.test(before) || !pkgRe.test(before)) {
+    console.error('MISS: package-lock.json 顶层/根包版本字段（期望均为 ' + from + '）');
+    process.exit(1);
+  }
+  let after = before.replace(rootRe, '$1' + to + '$2').replace(pkgRe, '$1' + to + '$2');
+  // 依赖项版本数必须不变（只动了我们自己的两个字段）
+  const countBefore = (before.match(/"version"\s*:/g) || []).length;
+  const countAfter = (after.match(/"version"\s*:/g) || []).length;
+  if (countBefore !== countAfter) {
+    console.error('MISS: package-lock.json 结构被破坏（version 字段数 ' + countBefore + ' -> ' + countAfter + '）');
+    process.exit(1);
+  }
+  fs.writeFileSync(p, after, 'utf8');
+  console.log('ok: package-lock.json (root + packages[""])');
+}
 rep('gui/shell/DiskCleanUi.csproj', '<Version>' + from + '</Version>', '<Version>' + to + '</Version>');
 rep('gui/shell/DiskCleanUi.csproj', '<FileVersion>' + from + '</FileVersion>', '<FileVersion>' + to + '</FileVersion>');
 rep('gui/shell/DiskCleanUi.csproj', '<InformationalVersion>' + from + '</InformationalVersion>', '<InformationalVersion>' + to + '</InformationalVersion>');
