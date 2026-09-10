@@ -407,3 +407,33 @@ checksums.txt           （version=<版本> 行，构建产物）
 24. **破坏性工具默认 dry-run**：AI 会直接照返回值复述结论，所以"0 项执行成功"绝不能返回
     `ok:true`（否则模型会宣布"清理完成"）。同类：清空回收站必须回报真实条目数并标注不可恢复。
 25. **边界拒绝要带 hint**：路径闸门拒绝时同时给出"下一步怎么办"，否则模型会反复重试同一调用。
+
+### 路径归一化与发布脚本（v0.5.0 实测增补）
+
+26. **跨来源路径比较必须归一化，不能纯字符串比**（G52）：
+    审计日志记的是调用方原样给的路径，回收站 `$I` 记录是系统写的规范路径，两者拼写经常不同——
+    最常见的是 8.3 短名（`ADMINI~1` vs `Administrator`），还有 junction/映射盘、尾分隔符、大小写、`.`/`..`。
+    实测：本机 `%TEMP%` 就是短名形式，导致"清理 3 项后 `toolMatched=0`"，
+    即**刚清理完的文件无法恢复**——安全功能静默失效。
+    正确做法（`canonKey`）：`path.resolve` → 对**最深的仍存在的祖先**做 `realpath` → 把缺失尾段拼回 → 小写去尾分隔符。
+    ⚠ 只 realpath 直接父目录是不够的：清理后父目录已不存在，两边会各留各的拼写而继续失配。
+27. **发布脚本每一步都要复核真实状态，禁止假成功**（G51）：
+    旧 `publish-release.ps1` 在 release 创建返回 403、资产上传报 "release not found" 的情况下，
+    仍然打印 `Publish verified: v0.5.0` 并 `exit 0`。根因是 `$ErrorActionPreference='Continue'`
+    （为压 native stderr 噪音而设）让失败不中断，且 `if ($r.draft)` 在 `$r` 为 `$null` 时被跳过。
+    现在：每步显式判返回码，关键步骤**回到 API 复核**（Release 是否存在、非 draft、资产名齐全、远端字节数 == 本地），
+    下载回来比对哈希，任一失败立即 `exit 1` 并给出可行动的修复指引。**发布类脚本不得只信 `$LASTEXITCODE`。**
+28. **`.ps1` 全 ASCII 是硬约束，不是风格偏好**（G46 复发）：
+    本轮把 `publish-release.ps1` 的提示信息写成中文，`write` 工具落盘为无 BOM UTF-8，
+    PS 5.1 按 GBK 读取 → 中文变乱码 → **解析错误**（`Unexpected token '鍒涘缓'`）。
+    改动任何 `.ps1` 后必须验证：`非 ASCII 字节数 == 0` 且 `Parser::ParseFile` 无错。
+    需要中文说明就写在 `docs/`，脚本里只留英文。
+
+### 权限与凭据
+
+29. **fine-grained PAT 必须给 `Contents: Read and write`**：只给读权限时，
+    `gh release create` 返回 `403 Resource not accessible by personal access token`，
+    而 `git push`（走 git 协议）可能仍然可用——于是出现"代码推上去了、Release 发不出来"的迷惑状态。
+    发布前先跑 `scripts/publish-release.ps1` 的第 0 步预检，它会直接告诉你要补哪个权限。
+30. **token 泄露后必须轮换**：一旦 PAT 出现在对话记录、日志或提交里，立即到
+    Settings → Developer settings → Fine-grained tokens 撤销重建（撤销即时生效，代价只是重配一次）。
