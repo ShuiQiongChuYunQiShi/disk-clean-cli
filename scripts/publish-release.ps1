@@ -72,14 +72,27 @@ Write-Output "tag $tag is on the remote"
 # ---------- 2) Create the Release (non-draft); skip when it already exists ----------
 Write-Output "==> 2/6 release..."
 $release = GetRelease $tag
+$notesFile = Join-Path $env:TEMP "release-notes-$ver.md"
+$haveNotes = $false
+if (Test-Path "docs/RELEASE_NOTES-v$ver.md") {
+  Copy-Item "docs/RELEASE_NOTES-v$ver.md" $notesFile -Force
+  $haveNotes = $true
+  Write-Output "using docs/RELEASE_NOTES-v$ver.md as the release body"
+} elseif (Test-Path $notesFile) {
+  $haveNotes = $true
+}
+
 if ($release) {
   Write-Output "release $tag already exists (id=$($release.id) draft=$($release.draft))"
+  # CI creates a release on tag pushes with GitHub's auto-generated notes.
+  # If we have a curated body, overwrite it so the published text is ours.
+  if ($haveNotes) {
+    $r = RunNative $gh @('release', 'edit', $tag, '--notes-file', $notesFile)
+    if ($r.code -ne 0) { Fail "gh release edit (body) failed: $($r.out)" }
+    Write-Output "release body synced from the curated notes file"
+  }
 } else {
-  $notesFile = Join-Path $env:TEMP "release-notes-$ver.md"
-  if (Test-Path "docs/RELEASE_NOTES-v$ver.md") {
-    Copy-Item "docs/RELEASE_NOTES-v$ver.md" $notesFile -Force
-    Write-Output "using docs/RELEASE_NOTES-v$ver.md as the release body"
-  } elseif (-not (Test-Path $notesFile)) {
+  if (-not $haveNotes) {
     @"
 ## v$ver
 
