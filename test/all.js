@@ -14,6 +14,7 @@ const suites = [
   'dsh-config.js',
   'rules-integrity.js',
   'version-consistency.js',
+  'ci-workflow.js',
 ];
 
 let failed = 0;

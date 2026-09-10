@@ -14,6 +14,13 @@ permissions:
 jobs:
   build:
     runs-on: windows-latest
+    # `permissions` is valid only at workflow or job level -- putting it on a
+    # step makes the whole workflow file invalid, and GitHub then fails every
+    # run immediately with the file path as the run name instead of a real job.
+    # This single job both builds and (on tags) publishes the release, so it
+    # needs write access to contents.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -30,8 +37,8 @@ jobs:
           node --check gui\web\app.js
 
       - name: Test suite
-        # engine-smoke / engine-edge / clean-safety / organize-safety /
-        # serve-integration / mcp-protocol / version-consistency
+        # engine-smoke / engine-edge / clean-safety / organize-safety / serve-integration /
+        # mcp-protocol / dsh-config / rules-integrity / version-consistency / ci-workflow
         run: node test/all.js
 
       - name: Install build deps (from lockfile)
@@ -53,8 +60,6 @@ jobs:
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
-        permissions:
-          contents: write
         uses: softprops/action-gh-release@v2
         with:
           files: |
