@@ -128,7 +128,7 @@
 
 ### 3.2 验证清单
 
-- [ ] 本地全量回归（`npm test`，8 个套件）
+- [ ] 本地全量回归（`npm test`，9 个套件）
 - [ ] 重打包 exe 后**重新跑全命令**（exe 与源码永远同步）
 - [ ] **exe 形态也要过 MCP 端到端**：`node scripts/mcp-e2e.js <测试树> --exe dist\disk-clean-win-x64.exe`
       —— 只测源码会漏掉"源码对、打包后坏"（SEA 把整个依赖树塞进 blob，`require` 行为可能不同）

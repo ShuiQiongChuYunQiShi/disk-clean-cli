@@ -78,6 +78,25 @@ disk-clean scan D:\
 
 AI 的典型调用链是 `disk_drives`（看容量）→ `disk_scan`（扫描出报告）→ `disk_clean`（先 dry-run 预览，再 `confirm:true` 执行）。**破坏性工具默认只预览**，AI 必须显式确认才动文件；系统目录、OneDrive 云同步目录、扫描范围外的路径一律拒绝。本地开发可直接用 `node bin/disk-clean-mcp.js`。
 
+<details>
+<summary><b>在 DeepSeek Harness（DSH）里接入</b></summary>
+
+DSH 用 `@deepseek-ai/dsh-mcp-client` 插件读 MCP server。在你的 agent preset 的 `agent.cordis.yml` 里加一行即可（**零自定义 JS**，工具会以 `mcp__disk-clean__disk_scan` 这样的名字出现）：
+
+```yaml
+- name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: disk-clean
+    transport: stdio
+    command: node
+    args: ['D:\\deepseekHerness\\disk-clean-cli\\bin\\disk-clean-mcp.js']
+```
+
+全局安装过 npm 包时也可以用 `command: npx` + `args: ['-y', 'disk-clean', 'mcp']`。
+
+> v0.5.0 之前本仓库自带一个 DSH 专有插件预设（`plugin/`）。它已删除：约 3400 行 DSH 专属代码、与 CLI 双份引擎、出货形态下无法渲染面板、且零测试覆盖。上面这一行配置提供同样的能力，且不产生维护面。
+</details>
+
 ### 方式 D —— 原生 GUI 窗口（WebView2）
 
 从 [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) 下载 `disk-clean-setup-<版本>.exe` —— 原生桌面窗口（WinForms + WebView2），双语（中/英）仪表盘：一键扫描、智能建议、一键清理，另含高级页（整理 / 健康 / 去重 / 配额 / MFT / 计划任务 / 配置 / 审计）。安装器检测 .NET 8 Desktop Runtime 与 WebView2，缺失时引导下载。详见 [docs/GUI-PLAN.md](docs/GUI-PLAN.md)。
@@ -225,7 +244,7 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm test          # 全量测试（8 个套件，含 MCP 协议 / 规则完整性 / 版本一致性）
+npm test          # 全量测试（9 个套件，含 MCP 协议 / 规则完整性 / 版本一致性）
 npm run mcp       # 本地起一个 MCP server
 powershell -File scripts\build.ps1   # 构建 exe + sha256
 ```

@@ -80,6 +80,25 @@ Then just ask:
 
 The typical call chain is `disk_drives` (capacity) → `disk_scan` (build a report) → `disk_clean` (dry-run preview, then `confirm:true`). **Destructive tools only preview unless explicitly confirmed**; system paths, OneDrive folders and anything outside the scanned roots are refused outright. For local development use `node bin/disk-clean-mcp.js` directly.
 
+<details>
+<summary><b>Wiring it into DeepSeek Harness (DSH)</b></summary>
+
+DSH reads MCP servers through its `@deepseek-ai/dsh-mcp-client` plugin. Add one row to your agent preset's `agent.cordis.yml` (**no custom JS**; tools surface as `mcp__disk-clean__disk_scan` and friends):
+
+```yaml
+- name: '@deepseek-ai/dsh-mcp-client'
+  config:
+    serverName: disk-clean
+    transport: stdio
+    command: node
+    args: ['D:\\deepseekHerness\\disk-clean-cli\\bin\\disk-clean-mcp.js']
+```
+
+With the npm package installed globally you can use `command: npx` and `args: ['-y', 'disk-clean', 'mcp']` instead.
+
+> Before v0.5.0 this repo shipped a DSH-only agent preset (`plugin/`). It is gone: ~3400 lines of DSH-specific code, a duplicated engine, a panel that could not render in the shipped build, and zero test coverage. The row above provides the same capability with no maintenance surface.
+</details>
+
 ### Option D — Native GUI (WebView2 window)
 
 Download `disk-clean-setup-<ver>.exe` from [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) — a native desktop window (WinForms + WebView2) with a bilingual (zh/en) dashboard: one-click scan, suggestions, cleanup, plus advanced tabs (organize / health / dedup / quota / MFT / schedule / config / audit). The installer detects and bootstraps .NET 8 Desktop Runtime and WebView2 when missing. See [docs/GUI-PLAN.md](docs/GUI-PLAN.md) and [README.zh-CN.md](README.zh-CN.md).
@@ -227,7 +246,7 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm test          # full suite (8 suites, incl. MCP protocol + rules integrity + version consistency)
+npm test          # full suite (9 suites, incl. MCP protocol + rules integrity + version consistency)
 npm run mcp       # start an MCP server locally
 powershell -File scripts\build.ps1   # build exe + sha256
 ```

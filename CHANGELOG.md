@@ -36,7 +36,10 @@
 - `test/rules-integrity.js`：规则表完整性 —— 守住"同名 key 静默覆盖"这类看不见的缺陷
   （见下方 Fixed），并断言歧义扩展名的既定归属、阈值健全性、规则表与配置默认值一致。
 - `scripts/mcp-e2e.js`：真实子进程端到端冒烟（扫描 → 清理 → 回收站恢复 → 查重 → 安全负例 →
-  审计 → stdout 纯净性），并验证 dry-run 零副作用。`npm run e2e:mcp`。
+  审计 → stdout 纯净性），并验证 dry-run 零副作用；可对源码或打包后的 exe 运行（`--exe`）。`npm run e2e:mcp`。
+- `test/dsh-config.js`：验证 README 里给 DSH 的那段 `@deepseek-ai/dsh-mcp-client` 配置**可执行地**
+  成立 —— 真拉起 server、走 DSH 握手、断言工具公开名 `mcp__disk-clean__<name>` 合法唯一、
+  用公开名反查调用成功，并确认破坏性工具经该通道仍默认 dry-run。
 
 ### Fixed
 - **清理 0 项不再误报成功**（模型/用户会据此宣布"清理完成"）：`clean.execute` 在

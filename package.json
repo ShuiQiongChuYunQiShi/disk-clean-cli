@@ -20,7 +20,7 @@
   "scripts": {
     "start": "node bin/disk-clean.js",
     "mcp": "node bin/disk-clean-mcp.js",
-    "check": "node --check bin/disk-clean.js && node --check bin/disk-clean-mcp.js && node --check lib/engine.js && node --check lib/rules.js && node --check lib/health.js && node --check lib/clean.js && node --check lib/guard.js && node --check lib/serve.js && node --check lib/audit.js && node --check lib/version.js && node --check lib/mcp/server.js && node --check lib/mcp/tools.js && node --check scripts/mcp-e2e.js && node --check gui/web/app.js && node --check gui/web/ui-kit.js",
+    "check": "node --check bin/disk-clean.js && node --check bin/disk-clean-mcp.js && node --check lib/engine.js && node --check lib/rules.js && node --check lib/health.js && node --check lib/clean.js && node --check lib/guard.js && node --check lib/serve.js && node --check lib/audit.js && node --check lib/version.js && node --check lib/mcp/server.js && node --check lib/mcp/tools.js && node --check gui/web/app.js && node --check gui/web/ui-kit.js",
     "smoke": "node test/engine-smoke.js",
     "e2e:mcp": "node scripts/mcp-e2e.js",
     "test": "node test/all.js",

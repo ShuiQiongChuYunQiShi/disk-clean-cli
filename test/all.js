@@ -11,6 +11,7 @@ const suites = [
   'organize-safety.js',
   'serve-integration.js',
   'mcp-protocol.js',
+  'dsh-config.js',
   'rules-integrity.js',
   'version-consistency.js',
 ];
