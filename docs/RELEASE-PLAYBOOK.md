@@ -1,35 +1,40 @@
 # disk-clean 制作与发布 SOP —— 可复用 Playbook
 
 > 本文是**操作手册**（照着做就行），与 `PROCESS-REVIEW.md`（复盘：学了什么）互补。
-> 适用范围：在 DeepSeek Harness（DSH）上制作 Windows 磁盘工具——三形态交付（DSH 插件 + 独立 CLI + GUI 桌面端），
-> 上传 GitHub，打包 Release。新项目可直接复用本流程。
+> 适用范围：制作 Windows 磁盘工具——三形态交付（独立 CLI + MCP server + GUI 桌面端），
+> 上传 GitHub 与 npm，打包 Release。新项目可直接复用本流程。
 
 ---
 
 ## 0. 机制总览（先看这张图）
 
 ```
-引擎（唯一权威源）
-   ├─► DSH 插件（对话式 AI）：plugin/plugins/dsk-adv.js + dsk-lib/（= CLI lib 副本）
-   │     静态 presethost.static5.js（会话挂载即用，免审批）
-   │     动态模板 host.js（__DSK_DIR__ 占位，cordis_define 安装，带可视化面板）
-   ├─► 独立 CLI（Node / SEA 单文件 exe）：bin/ + lib/ + scripts/build-sea.ps1
-   └─► GUI 桌面端（WebView2 原生窗口）：gui/ + lib/serve.js（界面前端 + HTTP 服务层）
+引擎（唯一权威源，零依赖 Node）
+   ├─► 独立 CLI（Node / SEA 单文件 exe）：bin/disk-clean.js + lib/
+   ├─► MCP server（AI 客户端通用）：bin/disk-clean-mcp.js + lib/mcp/
+   │     stdio JSON-RPC 2.0，12 个工具全是 lib/* 的薄封装
+   │     任意 MCP 客户端可用：DeepSeek Harness / Claude Desktop / Cursor
+   └─► GUI 桌面端（WebView2 原生窗口）：gui/ + lib/serve.js（前端 + HTTP 服务层）
             ├─ C# 壳（WinForms+WebView2，.NET 8 框架依赖单 exe ~24MB，UAC 提权）
             │    spawn engine.exe serve --port <p> --token <t> --web <dir>
-            ├─ lib/serve.js：8 工具 REST 化（仅绑 127.0.0.1 + Bearer 鉴权）
-            └─ gui/web/：零依赖暗色仪表盘（主页极简 + 高级 8 Tab，双语）
+            ├─ lib/serve.js：REST 化（仅绑 127.0.0.1 + Bearer 鉴权）
+            └─ gui/web/：零依赖暗色仪表盘（主页极简 + 高级 Tab，双语）
                     │
                     ▼
    Inno Setup 安装器（检测 .NET 8 Desktop Runtime / WebView2，缺则引导官方 bootstrapper）
             │
             ▼
    GitHub 仓库（同一仓库承载三侧）→ Release 资产（setup exe + 引擎 exe + SHA256SUMS）→ CI 回归
+   npm 包（disk-clean，含 disk-clean / disk-clean-mcp 两个 bin）
 ```
 
-- **同源铁律**：引擎只写一处；插件 `dsk-lib/` 与 CLI `lib/` 互为副本，改动必须**双向同步**；
-  GUI 的 `lib/serve.js` 只包装引擎（零重写），引擎改动 GUI 自动受益。
-- **三条分发线共享同一仓库**：CLI 是第一入口（Release 资产），插件放 `plugin/` 目录，
+- **同源铁律**：业务逻辑只写一处（`lib/`）。MCP 工具与 CLI 命令、GUI 服务层都是薄壳，
+  不得复制引擎逻辑。若某能力在 CLI 有而 MCP 没有，就在 `lib/mcp/tools.js` 加一个薄封装，
+  而不是写第二份实现。
+- **安全规则同源**：路径闸门只有 `lib/guard.js` 一处；清理白名单只有 `lib/clean.js` 一处。
+  三侧共享，新增受保护路径只改 `guard.js`。
+- **版本同源**：只有 `lib/version.js` 的 `VERSION` 可写，其余派生；`test/version-consistency.js` 守门。
+- **三条分发线共享同一仓库**：CLI 是第一入口（Release 资产），MCP server 随 npm 包分发，
   GUI 放 `gui/` + `installer/` 随仓库分发。
 
 ---
@@ -38,92 +43,75 @@
 
 ```
 <repo>/
-├── bin/            # CLI 入口（disk-clean.js，含 VER 版本常量）
-├── lib/            # CLI 引擎（engine.js / health.js / mftscan.js / dedup.js / quota.js / serve.js…）
-├── scripts/        # build-sea.ps1（**全 ASCII**，SEA 打包）
-├── test/           # CI smoke test（**仓库内相对路径，禁止本机绝对路径**）
-├── docs/           # RELEASE-PLAYBOOK.md / PROCESS-REVIEW.md / GUI-PLAN.md / RELEASE_NOTES-*.md
+├── bin/            # 入口：disk-clean.js（CLI）+ disk-clean-mcp.js（MCP server）
+├── lib/            # 引擎与全部业务逻辑（engine-core.js / guard.js / clean.js / serve.js…）
+│   └── mcp/        # MCP：server.js（协议核心）+ tools.js（工具定义）
+├── scripts/        # build-sea.ps1（**全 ASCII**，SEA 打包）/ bump-version.js / publish-release.ps1
+├── test/           # CI 测试套件（**仓库内相对路径，禁止本机绝对路径**）
+├── docs/           # RELEASE-PLAYBOOK.md / OPTIMIZATION-PLAN.md / GUI-PLAN.md
+├── skills/         # 可复用技能（SKILL.md）：release-sop / gui-development
 ├── gui/            # GUI 桌面端：shell/（C# 壳）+ web/（前端）+ stage|publish|dist（构建产物）
 ├── installer/      # Inno Setup 安装器脚本（disk-clean-ui.iss）
-├── plugin/         # DSH 插件分发目录（见 §2）
 ├── .github/workflows/
-├── README.md       # Option A 单文件 exe / Option B npm / Option C DSH 插件 / Option D GUI（链接各文档）
+├── README.md       # Option A 单文件 exe / Option B npm / Option C MCP / Option D GUI
 ├── CHANGELOG.md
 └── package.json / sea-config.json / LICENSE / ROADMAP.md
 ```
 
-**起步顺序**：`package.json + git init` → 引擎最小可跑 → 双形态骨架 → 首个 Commit 就入库（编码铁律见 §5）。
+**起步顺序**：`package.json + git init` → 引擎最小可跑 → 安全闸门（guard）+ 版本源（version）
+先立起来 → 其余形态都是薄壳 → 首个 Commit 就入库（编码铁律见 §5）。
 
 ---
 
-## 2. 插件制作 SOP（DSH）
+## 2. MCP server 制作 SOP
 
-### 2.1 双形态（必须同时维护）
+> 历史教训：本项目曾以 **DSH 专有插件**（`plugin/`，约 3400 行 DSH 专属代码）作为 AI 接入形态。
+> 它有三重问题：① 与 CLI 引擎长期"双份改"，是缺陷密度最高的部分；② 出货形态挂的是静态宿主半，
+> 而 `harness.*` API 只存在于动态插件求值环境 → **图表面板在出货形态技术不可行**（重写即第五份 UI）；
+> ③ 零测试覆盖。v0.5.0 已整体删除，改用标准 MCP 协议接入。**新项目不要在专有插件形态上重复这个错误。**
 
-| 形态 | 文件 | 加载方式 | 适用 |
-|---|---|---|---|
-| 静态插件 | `plugin/plugins/disk-analyzer/host.static5.js` | `agent.cordis.yml` 直接引用，**会话挂载即注册工具**，免 cordis_define / 免审批 | 模型侧工具 + 文本报告（主推） |
-| 动态模板 | `plugin/plugins/disk-analyzer/host.js` + `client.js` | `__DSK_DIR__` 占位 → cordis_define 安装 | 交互式图表面板（可选增强） |
+### 2.1 为什么选 MCP
 
-### 2.2 目录结构（preset 根 = 任意主机预设 id）
+| 维度 | 专有插件（旧） | MCP server（现） |
+|---|---|---|
+| 客户端 | 只有 DSH | DSH / Claude Desktop / Cursor / 任何 MCP 客户端 |
+| 代码量 | ~3400 行专有代码 + 辅助进程 | ~1200 行（协议核心 ~150 + 工具定义） |
+| 与 CLI 同源 | 双份引擎副本，需同步脚本 | 同一 `lib/`，工具是薄封装 |
+| 安全模型 | 依赖宿主审批 API | 协议注解 + 默认 dry-run，可独立验证 |
+| 可测试性 | 无法测试（需宿主环境） | 纯进程内/子进程测试，见 `test/mcp-protocol.js` |
 
-```
-.env 预设根/<id>/
-├── agent.cordis.yml                 # 预设组成（插件行 name: './plugins/disk-analyzer/host.static5.js'）
-├── preset.yml
-├── plugins/
-│   ├── dsk-helper.js                # 引擎辅助进程
-│   ├── dsk-adv.js                   # 高级功能辅助进程（健康/MFT/去重/配额）
-│   ├── dsk-lib/                     # 高级功能引擎（与 CLI lib/ 同源）
-│   └── disk-analyzer/{host.static5.js, host.js, client.js, dsk-client.js, dsk-helper.js}
-└── skills/                          # 使用手册（SKILL.md 注入新会话）
-```
+### 2.2 协议要点（零依赖手写实现）
 
-### 2.3 路径铁律（防发布即坏）
+- **传输**：stdio，**一行一个 JSON-RPC 2.0 对象**（NDJSON）。stdout 只允许协议消息，
+  任何诊断输出必须走 stderr —— 这是 MCP server 最容易踩的坑，会直接破坏协议流。
+- **方法**：`initialize` / `notifications/initialized`（通知，无响应）/ `ping` /
+  `tools/list` / `tools/call`；未实现的能力返回空列表（`resources/list` → `{resources:[]}`）。
+- **协议版本**：`2024-11-05`。
+- **错误码**：PARSE `-32700` / INVALID_REQUEST `-32600` / METHOD_NOT_FOUND `-32601` /
+  INVALID_PARAMS `-32602` / INTERNAL `-32603`。**工具自身的业务失败不是协议错误**：
+  返回 `{content:[{type:'text',...}], isError:true}`，让模型读到原因。
+- **串行化**：引擎有模块级状态 → `tools/call` 必须**排队串行**执行，
+  否则并发扫描互相污染（`lib/mcp/server.js` 的 `queue` Promise 链）。
+- **注解**：每个工具带 `annotations: {title, readOnlyHint, destructiveHint, idempotentHint, openWorldHint}`，
+  客户端据此决定是否弹确认。`listTools()` 必须透传注解。
 
-- **禁止硬编码机器路径**（如 `C:\Users\Administrator\...`）。`host.static5.js` 顶部用
-  `require('node:path')` + `__dirname` 推导：`path.resolve(__dirname, '..', '..')` = preset 根。
-  try/catch 回退旧硬编码兜底。发布前 grep 全目录确认无 `Administrator` / 开发机盘路径。
-- 相对引用（`agent.cordis.yml` → `./plugins/...`）以 preset 根为基准，**复制后保持结构不变**。
+### 2.3 工具设计铁律
 
-### 2.4 工具注册（两种风格，二选一配套）
+1. **薄封装**：工具体只做「参数整形 → 调 `lib/*` → 裁剪结果」，不写业务逻辑。
+2. **破坏性动作默认 dry-run**，`confirm:true` 才执行；返回里给出回滚指引。
+3. **边界必须显式拒绝**，不许静默兜底：路径白名单外、根不可访问、盘符非法，
+   一律 `ok:false + error + hint`（下一步动作）。
+4. **错误文本要可行动**：`fail(msg, hint)` 统一出口，hint 告诉模型怎么修。
+5. **不把内部对象外抛**：只读叶子字段，构造最小自有对象（live 对象不可序列化）。
+6. **结果要裁剪**：列表类返回 `slice(0, N)` + `truncated` 标记，避免撑爆上下文。
 
-- 静态插件：`ctx.tools.register(tool)`（`inject: ['timer','tools']`），工具对象 `{ name, description, schema, action }`。
-- 动态插件：`harness.defineTool({...})` + `harness.registerTool(ctx, tool)`。
-- 工具命名 `disk_*` 前缀；描述必须自含完整用法（模型只读 description）。
+### 2.4 MCP 验证清单
 
-### 2.5 辅助进程模式（关键）
-
-- 辅助进程（dsk-helper / dsk-adv）为**纯 Node**：原生 `fs`、**不用 `spawnSync`**（沙箱管道限制），
-  输出协议 `'\n' + JSON.stringify(obj)`，宿主 `parseHelperOut` 取 lastIndexOf('\n') 之后解析。
-- 宿主用 `ctx.get('subprocess')` 以 `spawn(node, [...argv])` 启动；`cwd` 用固定盘根即可。
-- 高级功能统一走 dsk-adv.js 多模式分发：`mftscan <drive>` / `dedup <json>` / `dedup-hardlink <json>` /
-  `dedup-rollback <json>` / `quota <drive>`。
-
-### 2.6 安全模型（插件独有，CLI 可借鉴）
-
-1. 默认只建议不执行；删除 = 预览 → 用户确认 → **DSH 审批**（`approval.request`，双确认）。
-2. 优先移入回收站（可恢复）；仅回收站清空永久删除。
-3. **白名单**：执行路径必须来自最近一次报告的建议明细，拒绝一切清单外路径。
-4. 系统目录只统计不清理。
-5. 每次执行写 `.dsk-audit.json` 审计（时间/类型/路径/字节/结果）。
-6. 删除走 PowerShell（UTF-16LE base64 + 单引号转义）；**硬链接用 `fs.linkSync` 而非 PowerShell New-Item**
-   （沙箱管道问题），备份 `victim → victim.dsk-dup-bak`，失败回滚。
-7. 破坏性操作一律可回滚：整理/去重写映射文件（organize-map / dedup-map）。
-
-### 2.7 插件验证清单
-
-- [ ] 全部 `.js` 过 `node --check`
-- [ ] 端到端：scan → report → clean(审批) → organize plan/apply/rollback → audit
-- [ ] 高级功能实测：health（温度/寿命）、mftscan（MFT 记录数）、dedup（≥1MB 重复组 + hardlink + rollback）、quota
-- [ ] grep 确认无机器路径（`Administrator` / `D:\` 开发目录）
-- [ ] **新开会话**才能看到新工具（静态插件会话挂载时注册，不热更新）——告知用户
-
-### 2.8 插件发布进仓库
-
-- 镜像已安装最新版 → `plugin/`（**以安装位置为基准**，product 源可能有旧副本，先比对哈希再镜像）。
-- `plugin/README.md`：安装（复制到 `.agent-presets/<id>/`）/ 使用 / 安全模型 / 目录结构。
-- 仓库主 README 补 Option C 链接（**不要用 `../README.md` 这种仓库外链接**）。
+- [ ] `node --check lib/mcp/*.js bin/disk-clean-mcp.js`
+- [ ] `test/mcp-protocol.js`：握手 / ping / tools/list 结构 / 注解透传 / 五个错误码 /
+      安全负例（受保护路径、OneDrive、出扫描范围、白名单外）/ 未确认即 dry-run /
+      **子进程 stdout 纯净性**（逐行 JSON.parse，非 JSON 行即失败）
+- [ ] 手工接入真实客户端（`npx -y disk-clean mcp` 跑一次 tools/list）
 
 ---
 
@@ -133,17 +121,19 @@
 
 - `scripts/build-sea.ps1`：`esbuild bundle → node --experimental-sea-config → postject` 全离线；
   **脚本全 ASCII**（CI 用 pwsh7，中文会破坏字符串）。
-- 版本常量 `VER` 在 `bin/disk-clean.js`；SEA 单入口，子进程自我调用走 `--internal-*` 参数，
-  按 `IS_SEA`（`process.execPath` 含 `sea`）分派脚本路径。
+- 版本号在 `lib/version.js`（单一事实源），`bin/disk-clean.js` 与 `lib/serve.js` 只引用不写死；
+  SEA 单入口，子进程自我调用走 `--internal-*` 参数，按 `IS_SEA` 分派脚本路径。
 - 依赖：Node 内建 `fs/crypto/child_process` + PowerShell 补齐系统能力（COM 快捷方式 / SMART / 计划任务），
-  零运行时依赖。
+  零运行时依赖。`engines.node >= 18.15`（`fs.statfsSync` 与 `node:sea` 的下限）。
 
 ### 3.2 验证清单
 
-- [ ] 本地全量回归（scan / report / organize / clean / fix-shortcuts / audit / health / mftscan / dedup / quota）
+- [ ] 本地全量回归（`npm test`，8 个套件）
 - [ ] 重打包 exe 后**重新跑全命令**（exe 与源码永远同步）
-- [ ] 版本 bump + CHANGELOG + ROADMAP 状态表同步
-- [ ] 与插件侧同源文件比对（`lib/` ⇄ `plugin/plugins/dsk-lib/`）确认同步
+- [ ] **exe 形态也要过 MCP 端到端**：`node scripts/mcp-e2e.js <测试树> --exe dist\disk-clean-win-x64.exe`
+      —— 只测源码会漏掉"源码对、打包后坏"（SEA 把整个依赖树塞进 blob，`require` 行为可能不同）
+- [ ] 版本 bump（`node scripts/bump-version.js <from> <to>`，自带一致性自校验）+ CHANGELOG + ROADMAP 同步
+- [ ] `node bin/disk-clean.js mcp` 起一次、`tools/list` 正常（MCP 侧不因 CLI 改动而坏）
 
 ---
 
@@ -166,12 +156,14 @@ disk-clean-ui.exe（C# WinForms+WebView2 壳，.NET 8 框架依赖单 exe ~24MB�
 - **WebView2 环境**：`CoreWebView2Environment.CreateAsync(userDataFolder=%LOCALAPPDATA%\disk-clean\webview2)`
   → `EnsureCoreWebView2Async` → `AddScriptToExecuteOnDocumentCreatedAsync` 注入
   `window.__DSK_TOKEN__` 与 `window.__DSK_URL__` → `Navigate`。异常弹 MessageBox 并 Close。
-- **前端 token**：`window.__DSK_TOKEN__ || new URLSearchParams(location.search).get('token')`——
-  兜底 URL query 便于 headless 测试与手工调试，不破坏 C# 注入主路径。
+- **前端 token**：`window.__DSK_TOKEN__`（由 C# 壳注入）为唯一主路径；query token
+  仅在 `DSK_ALLOW_QUERY_TOKEN=1` 时放开（token 进浏览器历史/Referer/代理日志是真实风险）。
 
 ### 3.5.2 服务层（lib/serve.js）铁律
 
-- **只绑 127.0.0.1**；除 `/api/health` 外全部要求 `Authorization: Bearer <token>`。
+- **只绑 127.0.0.1**；除 `/api/health` 外全部要求 `Authorization: Bearer <token>`
+  （query token 默认拒绝，见 §3.5.1）。静态托管越界判定用 `path.relative`，
+  **不用 `file.startsWith(webDir)`**——`webDir=C:\app\web` 时 `C:\app\web-evil\x.js` 也会前缀匹配。
 - **CLI 命令是位置参数不是 flag**：spawn 传 `serve`（位置）而非 `--serve`（flag 会被
   parseOpts 当布尔 → cmd=undefined → 打印 help 退 0）。这是本模块最高频坑。
 - 扫描任务：spawn 子进程 `--internal-scan`（SEA 自调用 `['--internal-scan']`，node 环境
@@ -266,7 +258,9 @@ scripts/build-installer.ps1
 - [ ] 扫描 → 进度轮询 → report 完整返回；clean 空路径自动提取
 - [ ] 扫描取消：任意状态可 cancel（done 任务返回 note、未知 404）；**取消测试用临时
       report 路径**（`body.report=$TEMP\x.json`），避免覆盖好报告
-- [ ] **Edge headless 渲染**：`msedge.exe --headless=new --disable-gpu --user-data-dir=<临时> --dump-dom --virtual-time-budget=8000 "http://127.0.0.1:<port>/?token=<t>"`
+- [ ] **Edge headless 渲染**：需要 query token 时给引擎进程加 `DSK_ALLOW_QUERY_TOKEN=1`
+      （默认拒绝），然后
+      `msedge.exe --headless=new --disable-gpu --user-data-dir=<临时> --dump-dom --virtual-time-budget=8000 "http://127.0.0.1:<port>/?token=<t>"`
       → 检查 nav-item / drive-card / 真实容量数字 / 默认选中 D / 无 `Uncaught|ReferenceError|TypeError`
       （旧 `--headless` 模式可能空输出，必须 `--headless=new` + 独立 profile）
 - [ ] PS 5.1 调 API 发中文 JSON 用 `[Text.Encoding]::UTF8.GetBytes($json)` 字节体
@@ -324,8 +318,7 @@ checksums.txt           （version=<版本> 行，构建产物）
 - [ ] Release 非 draft、资产哈希与本地一致（含 GUI setup 与引擎两处 sha）
 - [ ] CI 最新 run 成功
 - [ ] README（Option A/B/C/D 链接）+ CHANGELOG + ROADMAP 无坏链接
-- [ ] 版本三处一致：`bin/VER`、`lib/serve.js VER`、`package.json version`（GUI 壳
-      `DiskCleanUi.csproj Version` 与引擎版本同号）——发布前 grep 核对，防版本漂移
+- [ ] `npm test` 含 `version-consistency` 通过（版本漂移在发布前就被拦住，不再靠人工 grep）
 
 ---
 
@@ -385,18 +378,32 @@ checksums.txt           （version=<版本> 行，构建产物）
 
 **对话记忆不会带到新会话，但流程载体可以——用以下任一方式让新会话复用：**
 
-1. **DSH 技能（推荐）**：本 preset 携带 `skills/release-sop/SKILL.md`（发布流程）与
-   `skills/gui-development/SKILL.md`（GUI 桌面端专项，v0.3.0 新增），新会话的技能目录会自动出现；
-   对模型说“按 release-sop 流程做 XXX”或“按 gui-development 做 GUI”，即加载对应速查。
-2. **仓库文档**：直接要求模型读 `docs/RELEASE-PLAYBOOK.md`（本文件）+ `docs/PROCESS-REVIEW.md`
-   （错误清单）+ `docs/GUI-PLAN.md`（GUI 设计），命令示例：
+1. **技能（推荐）**：`skills/release-sop/SKILL.md`（发布流程）与
+   `skills/gui-development/SKILL.md`（GUI 桌面端专项）已安装为**全局技能**
+   （`~/.agents/skills/`），新会话自动可见；对模型说"按 release-sop 流程做 XXX"
+   或"按 gui-development 做 GUI"，即加载对应速查。
+2. **仓库文档**：直接要求模型读 `docs/RELEASE-PLAYBOOK.md`（本文件）+
+   `docs/OPTIMIZATION-PLAN.md`（演进计划与已修缺陷）+ `docs/GUI-PLAN.md`（GUI 设计），命令示例：
    ```
-   读取 D:\deepseekHerness\disk-clean-cli\docs\RELEASE-PLAYBOOK.md 和 PROCESS-REVIEW.md，
-   按 §2 插件 SOP 把新功能 XXX 加入磁盘分析器插件并走 §4 发布流程。
-   读取 D:\deepseekHerness\disk-clean-cli\docs\GUI-PLAN.md 与工具 skills/gui-development，
+   读取 D:\deepseekHerness\disk-clean-cli\docs\RELEASE-PLAYBOOK.md 和 OPTIMIZATION-PLAN.md，
+   按 §2 MCP SOP 给 disk-clean 加一个新工具，并走 §4 发布流程。
+   读取 D:\deepseekHerness\disk-clean-cli\docs\GUI-PLAN.md 与技能 gui-development，
    按 §3.5 GUI SOP 修改前端/安装器。
    ```
-3. **技能 = 指针，手册 = 权威**：SKILL.md 只放速查与定位（“读哪些文件、按哪几节做”），
+3. **技能 = 指针，手册 = 权威**：SKILL.md 只放速查与定位（"读哪些文件、按哪几节做"），
    完整内容始终以仓库 docs/ 为准，避免两份文档漂移。
+4. **MCP 形态让新会话直接可用**：任何 MCP 客户端接上 `disk-clean mcp` 就能拿到 12 个工具，
+   不依赖会话记忆，也不需要在本仓库里挂载任何插件代码。
 
-> 最佳实践：新会话开头先让它读本手册 + PROCESS-REVIEW，再开始动工；编码铁律（§5）每题必查。
+> 最佳实践：新会话开头先让它读本手册 + OPTIMIZATION-PLAN，再开始动工；编码铁律（§5）每题必查。
+
+### MCP 形态增补（v0.5.0）
+
+21. **stdout 是协议通道**：MCP server 任何非协议输出（`console.log`、警告、进度）都会破坏
+    JSON-RPC 流。诊断一律 `process.stderr.write`；`test/mcp-protocol.js` 以"逐行 JSON.parse"守门。
+22. **`tools/call` 必须串行**：引擎有模块级状态，并发调用互相污染；用 Promise 链排队。
+23. **业务失败 ≠ 协议错误**：工具返回 `isError:true` + 可读原因，不要抛 JSON-RPC error
+    （那会让模型只看到"内部错误"，不知道该怎么修）。协议错误只留给解析/方法/参数层面的失败。
+24. **破坏性工具默认 dry-run**：AI 会直接照返回值复述结论，所以"0 项执行成功"绝不能返回
+    `ok:true`（否则模型会宣布"清理完成"）。同类：清空回收站必须回报真实条目数并标注不可恢复。
+25. **边界拒绝要带 hint**：路径闸门拒绝时同时给出"下一步怎么办"，否则模型会反复重试同一调用。

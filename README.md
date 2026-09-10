@@ -8,6 +8,14 @@
 
 ---
 
+## What's new in v0.5.0
+
+- **AI integration moved to MCP**: a built-in [MCP](https://modelcontextprotocol.io) server (`disk-clean mcp`, stdio, **zero dependencies**) exposes 12 disk tools to any MCP client — DeepSeek Harness, Claude Desktop, Cursor. The previous DSH-only plugin form (~3400 lines of DSH-specific code that could never render its panel in the shipped build) is gone.
+- **12 MCP tools**: `disk_scan` / `disk_report` / `disk_drives` / `disk_clean` / `disk_organize` / `disk_dedup` / `disk_health` / `disk_quota` / `disk_mftscan` / `disk_audit` / `disk_recycle` / `disk_config`, each carrying MCP annotations (`readOnlyHint` / `destructiveHint`). Destructive tools are **dry-run by default** and require an explicit `confirm:true`.
+- **One safety gate, one source**: new `lib/guard.js` (protected paths / OneDrive / scan-root membership) replaces the copies in `clean.js`, `organize.js` and `serve.js`. Protected segments grew to 16 (adds `Windows.old`, `$Windows.~BT`, `Recovery`, `PerfLogs`, `MSOCache`, `Config.Msi`, `Boot`, `EFI`).
+- **One version source**: new `lib/version.js`. The version used to live in 6 places; now one is writable and the rest derive from it, `bump-version.js` self-verifies, and `test/version-consistency.js` guards against drift.
+- **Real defects fixed**: a 0-item clean no longer reports success; emptying the recycle bin reports the true item count and flags it irreversible; hardlink rollback is now an atomic sequence (no whole-file reads, no delete-then-write); static file serving uses `path.relative` for containment; query-string tokens are rejected by default; temp detection is exact-segment (`temporary-report` is no longer mistaken for a temp dir).
+
 ## What's new in v0.4.1
 
 - **OneDrive cloud-safe**: `\OneDrive\` files are counted but excluded from dedup hash and destructive suggestions; report/UI shows "OneDrive cloud files excluded (avoids silent download/delete)".
@@ -33,7 +41,7 @@
 | OneDrive cloud-safe (stats kept, no hash/delete) | ✅ | ❌ | ❌ | ❌ |
 | Bulk low-risk one-click clean | ✅ | ❌ | ❌ | ❌ |
 | Open source, no telemetry, no ads | ✅ | ✅ | ❌ | ❌ |
-| AI integration (optional, via DSH) | ✅ (plugin) | ❌ | ❌ | ❌ |
+| **AI integration (MCP, any client)** | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -47,16 +55,30 @@ Download `disk-clean-win-x64.exe` from [Releases](https://github.com/ShuiQiongCh
 .\disk-clean-win-x64.exe scan D:\
 ```
 
-### Option B — via Node.js (>= 14.16)
+### Option B — via Node.js (>= 18.15)
 
 ```powershell
 npm install -g disk-clean    # or: git clone + npm link
 disk-clean scan D:\
 ```
 
-### Option C — DeepSeek Harness plugin (AI-driven)
+### Option C — MCP server (AI-driven, works with any client)
 
-The same engine also ships as a DSH agent preset (`disk-analyzer`) with natural-language control and a live chart panel. See [plugin/README.md](plugin/README.md).
+`disk-clean mcp` starts a standard **MCP (Model Context Protocol)** server that exposes 12 disk tools over stdio. Zero dependencies — no SDK, no build step.
+
+```jsonc
+// DeepSeek Harness / Claude Desktop / Cursor — same config everywhere
+{
+  "mcpServers": {
+    "disk-clean": { "command": "npx", "args": ["-y", "disk-clean", "mcp"] }
+  }
+}
+```
+
+Then just ask:
+> "D: is nearly full — scan it, tell me what's safe to remove, then clean up temp files and empty folders."
+
+The typical call chain is `disk_drives` (capacity) → `disk_scan` (build a report) → `disk_clean` (dry-run preview, then `confirm:true`). **Destructive tools only preview unless explicitly confirmed**; system paths, OneDrive folders and anything outside the scanned roots are refused outright. For local development use `node bin/disk-clean-mcp.js` directly.
 
 ### Option D — Native GUI (WebView2 window)
 
@@ -117,6 +139,9 @@ disk-clean organize apply --yes --restore-point
 
 # 15. English report
 disk-clean scan D:\ --lang en
+
+# 16. Start the MCP server (for AI clients; stdio, long-running)
+disk-clean mcp
 ```
 
 ---
@@ -139,6 +164,7 @@ disk-clean scan D:\ --lang en
 | `dedup [roots...]` | Full-disk duplicate detection (excludes system/program dirs; head/tail + full-hash strategy). `--hardlink --yes` merges duplicates into hardlinks; `dedup rollback` restores. |
 | `quota [drive]` | Per-user quota analysis via MFT (needs admin): users ranked + per-user Downloads/Documents/Desktop/... breakdown. |
 | `health` | SMART / SSD health: temperature, wear %, power-on hours, read/write errors with a health grade. |
+| `mcp` | Start the **MCP server** (stdio, 12 tools) for DeepSeek Harness / Claude Desktop / Cursor and any other MCP client. stdout carries protocol messages only; diagnostics go to stderr. |
 | `--restore-point` | Add to `clean` / `organize apply` to create a system restore point first (fails gracefully if protection is off). |
 | `--lang en\|zh` | Report language for `scan` (auto-detected; defaults to system language). |
 
@@ -149,8 +175,9 @@ disk-clean scan D:\ --lang en
 - **Dry-run by default** — every destructive command prints what it *would* do; pass `--yes` to actually run.
 - **Recycle bin** — junk/empty/duplicate items are moved to the recycle bin, not permanently deleted.
 - **Rollback** — directory moves append to `organize-map.json`; `organize rollback` restores the last batch (including shortcuts).
-- **Protected paths** — `\windows\`, `\program files*\`, `\programdata\`, `\winsxs\`, `\system volume information\`, `\$recycle.bin\` are always refused.
-- **Audit log** — every action is appended to `~/.disk-clean/audit.jsonl` (time / type / paths / result).
+- **Protected paths** — 16 protected segments are always refused: `\windows\`, `\windows.old\`, `\program files*\`, `\programdata\`, `\winsxs\`, `\system volume information\`, `\$recycle.bin\`, `\$windows.~bt\`, `\$windows.~ws\`, `\recovery\`, `\perflogs\`, `\msocache\`, `\config.msi\`, `\boot\`, `\efi\`. The list exists in exactly one place (`lib/guard.js`).
+- **OneDrive cloud sync** — paths containing a `\OneDrive\` segment are refused for destructive operations too (deleting syncs to the cloud; hashing triggers silent placeholder downloads).
+- **Audit log** — every action is appended to `~/.disk-clean/audit.jsonl` (time / type / paths / result / real item counts).
 - **Exit codes** — 0 ok · 1 user cancel/args · 2 runtime error · 3 scan cancelled.
 
 State files live in `~/.disk-clean/`:
@@ -200,16 +227,19 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm run smoke     # engine smoke test
+npm test          # full suite (8 suites, incl. MCP protocol + rules integrity + version consistency)
+npm run mcp       # start an MCP server locally
 powershell -File scripts\build.ps1   # build exe + sha256
 ```
 
-- Engine: `lib/engine.js` — zero-dependency Node (native `fs`), PowerShell used only for COM shortcut fixing.
-- The CLI is a thin wrapper; the engine is also embedded in the DSH plugin form.
+- Engine: `lib/engine-core.js` (the only editable core) → `lib/engine.js` (thin wrapper) — zero-dependency Node (native `fs`), PowerShell used only for COM shortcut fixing.
+- Safety gate: `lib/guard.js` (single source). Version: `lib/version.js` (single source).
+- MCP: `lib/mcp/server.js` (protocol core, zero-dependency) + `lib/mcp/tools.js` (12 tools, all thin wrappers over `lib/*`).
+- The CLI and the MCP server are both thin shells — there is no second copy of the business logic.
 
 ## Reusable process
 
-See [docs/RELEASE-PLAYBOOK.md](docs/RELEASE-PLAYBOOK.md) — the step-by-step SOP for building the DSH plugin + CLI, publishing to GitHub and shipping Release assets (reuse for new projects). Historical retrospective and error catalog: [docs/PROCESS-REVIEW.md](docs/PROCESS-REVIEW.md).
+See [docs/RELEASE-PLAYBOOK.md](docs/RELEASE-PLAYBOOK.md) — the step-by-step SOP for building the CLI/GUI, publishing to GitHub and npm, and shipping Release assets (reuse for new projects). GUI specifics live in the `gui-development` skill; release specifics in `release-sop`.
 
 ## Roadmap
 

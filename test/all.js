@@ -2,17 +2,24 @@
 'use strict';
 const { execFileSync } = require('child_process');
 const path = require('path');
-const fs = require('fs');
 
-const suites = ['engine-smoke.js', 'engine-edge.js', 'clean-safety.js', 'organize-safety.js', 'serve-integration.js'];
-// rules-parity is env-dependent (needs plugin copy); include if present
-if (fs.existsSync(path.join(__dirname, 'rules-parity.js'))) suites.push('rules-parity.js');
+// 固定清单（不做“文件存在就跳过”的隐式降级：评审指出静默 SKIP 会让 CI 假绿）
+const suites = [
+  'engine-smoke.js',
+  'engine-edge.js',
+  'clean-safety.js',
+  'organize-safety.js',
+  'serve-integration.js',
+  'mcp-protocol.js',
+  'rules-integrity.js',
+  'version-consistency.js',
+];
 
 let failed = 0;
 const results = [];
 for (const s of suites) {
   try {
-    const out = execFileSync('node', [path.join(__dirname, s)], { encoding: 'utf8', timeout: 180000, windowsHide: true });
+    const out = execFileSync('node', [path.join(__dirname, s)], { encoding: 'utf8', timeout: 300000, windowsHide: true });
     results.push({ name: s, ok: true, out: out.trim() });
     console.log('PASS ' + s);
   } catch (e) {

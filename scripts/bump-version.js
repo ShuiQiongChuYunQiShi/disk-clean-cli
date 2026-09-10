@@ -1,7 +1,10 @@
 #!/usr/bin/env node
-// bump-version.js — 四源版本一键 bump（无 BOM、UTF-8 安全，替代 PS 管道）
+// bump-version.js — 单一事实源版本 bump（无 BOM、UTF-8 安全，替代 PS 管道）
+// 事实源：lib/version.js 的 VERSION 常量。本脚本把它改为 <to>，并同步所有派生源。
+// bin/disk-clean.js 与 lib/serve.js 不再写死版本号（改为 require version.js），
+// 所以这里只处理必须出现字面量的产物。
 // 用法: node scripts/bump-version.js <from> <to>
-//   e.g. node scripts/bump-version.js 0.3.2 0.4.0
+//   e.g. node scripts/bump-version.js 0.4.1 0.5.0
 'use strict';
 const fs = require('fs');
 const path = require('path');
@@ -29,20 +32,18 @@ function rep(file, a, b) {
   console.log('ok: ' + file);
 }
 
-rep('bin/disk-clean.js', "const VER = '" + from + "';", "const VER = '" + to + "';");
-rep('lib/serve.js', "const VER = '" + from + "';", "const VER = '" + to + "';");
+rep('lib/version.js', "const VERSION = '" + from + "';", "const VERSION = '" + to + "';");
+rep('package.json', '"version": "' + from + '"', '"version": "' + to + '"');
 rep('gui/shell/DiskCleanUi.csproj', '<Version>' + from + '</Version>', '<Version>' + to + '</Version>');
 rep('gui/shell/DiskCleanUi.csproj', '<FileVersion>' + from + '</FileVersion>', '<FileVersion>' + to + '</FileVersion>');
 rep('gui/shell/DiskCleanUi.csproj', '<InformationalVersion>' + from + '</InformationalVersion>', '<InformationalVersion>' + to + '</InformationalVersion>');
 rep('installer/disk-clean-ui.iss', '#define MyAppVersion "' + from + '"', '#define MyAppVersion "' + to + '"');
-rep('package.json', '"version": "' + from + '"', '"version": "' + to + '"');
-// index.html verLabel: 0.3.0 -> 0.3.2 样式不固定，用正则兜底
+// index.html verLabel: 旧标签可能残留，用正则兜底
 {
   const p = path.join(__dirname, '..', 'gui/web/index.html');
   let s = fs.readFileSync(p, 'utf8');
   const re = new RegExp('id="verLabel">v' + from.replace(/\./g, '\\.') + '<');
   if (!re.test(s)) {
-    // 0.3.0 这种旧标签可能残留
     const any = s.match(/id="verLabel">v[^<]+</);
     if (any) {
       s = s.replace(any[0], 'id="verLabel">v' + to + '<');
@@ -60,7 +61,7 @@ rep('package.json', '"version": "' + from + '"', '"version": "' + to + '"');
 }
 
 // 校验无 BOM
-const bomFiles = ['bin/disk-clean.js','lib/serve.js','gui/web/index.html','installer/disk-clean-ui.iss'];
+const bomFiles = ['lib/version.js', 'bin/disk-clean.js', 'lib/serve.js', 'gui/web/index.html', 'installer/disk-clean-ui.iss'];
 for (const f of bomFiles) {
   const b = fs.readFileSync(path.join(__dirname, '..', f));
   if (b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) {
@@ -68,4 +69,13 @@ for (const f of bomFiles) {
     process.exit(1);
   }
 }
-console.log('All done: ' + from + ' -> ' + to);
+
+// bump 后立即自校验：任一派生源不一致就报错退出（避免漂移悄悄进入发布）
+const ver = require('../lib/version.js');
+const v = ver.verify();
+if (!v.ok) {
+  console.error('版本漂移未收敛：');
+  for (const m of v.mismatches) console.error('  - ' + m.name + ': ' + (m.error || ('实际 ' + m.version + ' ≠ ' + to)));
+  process.exit(1);
+}
+console.log('All done: ' + from + ' -> ' + to + '（' + v.sources.length + ' 个版本源已校验一致）');

@@ -66,17 +66,25 @@ function waitForServer(port, token, deadlineMs) {
     r = await req(port, '/api/drives', { headers: { Authorization: 'Bearer ' + token } });
     assert(r.status === 200 && JSON.parse(r.body).drives.length >= 0, 'drives with token 200');
 
-    // 4. Static index served
-    r = await req(port, '/?token=' + token);
+    // 4. Static index served（静态资源不需要 token）
+    r = await req(port, '/');
     assert(r.status === 200 && r.body.indexOf('disk-clean') >= 0, 'index served');
 
     // 5. Static traversal rejected (../ beyond web root)
     r = await req(port, '/..%2f..%2fpackage.json');
     assert(r.status === 403 || r.status === 404, 'traversal rejected, got ' + r.status);
 
-    // 6. cancel unknown job -> 404
-    r = await req(port, '/api/scan/cancel?token=' + encodeURIComponent(token), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    // 5b. 前缀同级的兄弟目录不算在 web 根内（webDir=C:\x\web vs C:\x\web-evil）
+    r = await req(port, '/..%2fweb-evil%2fevil.js');
+    assert(r.status === 403 || r.status === 404, 'sibling-prefix traversal rejected, got ' + r.status);
+
+    // 5c. P2-7：query 里的 token 默认不再被接受（避免 token 进历史/Referer/代理日志）
+    r = await req(port, '/api/drives?token=' + encodeURIComponent(token));
+    assert(r.status === 401, 'query token must be rejected by default, got ' + r.status);
+
+    // 6. cancel unknown job -> 404（改用 Authorization 头）
+    r = await req(port, '/api/scan/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
       body: JSON.stringify({ job: 'no-such-job' })
     });
     assert(r.status === 404, 'cancel unknown job must be 404, got ' + r.status);

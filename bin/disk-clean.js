@@ -36,7 +36,7 @@ if (process.argv[2] === '--internal-scan') {
 }
 
 const BS = '\\';
-const VER = '0.4.1';
+const VER = require('../lib/version.js').VERSION;
 
 // SEA（单文件 exe）检测：node 环境 spawn 需带脚本路径，SEA 环境直接自我调用
 let IS_SEA = false;
@@ -604,6 +604,7 @@ function help() {
   console.log('  dedup rollback             回滚硬链接合并');
   console.log('  quota [盘符]               每用户配额分析 (MFT 直读, 需管理员)');
   console.log('  serve --port <p> --token <t> --web <dir>   GUI 引擎 HTTP 服务');
+  console.log('  mcp                         MCP Server（stdio，供 AI 客户端调用磁盘工具）');
   console.log('                              (仅绑定 127.0.0.1, Bearer 鉴权, 常驻)');
   console.log('  clean / organize apply --restore-point   执行前先建系统还原点 (失败不中断)');
   console.log('');
@@ -635,6 +636,23 @@ async function cmdServe(o) {
   return new Promise(function() { /* keep alive */ });
 }
 
+// ---------- 命令: mcp（MCP Server，stdio 常驻） ----------
+// stdout 是 MCP 协议通道：此模式下除协议消息外不得打印任何东西。
+function cmdMcp() {
+  const { createServer } = require('../lib/mcp/server.js');
+  const mcpTools = require('../lib/mcp/tools.js');
+  const list = mcpTools.tools();
+  const server = createServer({
+    tools: list,
+    serverInfo: { name: mcpTools.SERVER_INFO.name, version: VER },
+    log: function (line) { process.stderr.write('[disk-clean-mcp] ' + line + '\n'); },
+  });
+  process.stderr.write('[disk-clean-mcp] ready: ' + mcpTools.SERVER_INFO.name + ' v' + VER + ' (' + list.length + ' tools)\n');
+  server.start();
+  // 常驻：MCP 会话由 stdin 关闭（EOF）结束，届时 server 自行 exit(0)
+  return new Promise(function () {});
+}
+
 // ---------- main ----------
 async function main() {
   const argv = process.argv.slice(2);
@@ -652,6 +670,7 @@ async function main() {
       case 'config': return await cmdConfig(o);
       case 'schedule': return await cmdSchedule(o);
       case 'serve': return await cmdServe(o);
+      case 'mcp': return await cmdMcp(o);
       case 'mftscan': return await cmdMftScan(o);
       case 'health': return await cmdHealth();
       case 'quota': return await cmdQuota(o);

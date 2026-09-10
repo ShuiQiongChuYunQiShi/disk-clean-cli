@@ -1,8 +1,13 @@
 'use strict';
 /* disk-clean GUI frontend — zero-dependency, two-level UI.
-   Talks to engine --serve HTTP layer via Bearer token injected by the shell. */
+   Talks to the engine --serve HTTP layer via the Bearer token injected by the
+   C# shell (window.__DSK_TOKEN__), which is the only production path. */
 
 var BASE = window.__DSK_URL__ || ('http://127.0.0.1:' + (window.location.port || '8080'));
+/* The query-string fallback exists only for headless browser testing
+   (msedge --headless=new ...?token=...). The server rejects query tokens
+   unless it was started with DSK_ALLOW_QUERY_TOKEN=1, so this cannot
+   silently become a production channel. */
 var TOKEN = window.__DSK_TOKEN__ || new URLSearchParams(window.location.search).get('token') || '';
 
 /* ---------- tiny helpers ---------- */

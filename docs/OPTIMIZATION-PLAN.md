@@ -360,4 +360,84 @@
                                         ├─ 阶段五(npm+发布文档) ─────┤
                                         └─ 阶段六(文档债) ───────────┴→ 阶段七(v0.4.1 发布)
 ```
-（四/五/六 三者相互独立，可并行或按需调序）
+
+---
+---
+
+# v0.5.0 方向调整：去掉 DSH 专有形态，改用 MCP 接入 AI
+
+> 状态：**已完成**（2026-08-25 决策 → 本轮执行完毕，代码与文档同步，8/8 测试绿，端到端实测通过）
+> 触发：第三方极限锐评（483 行，逐文件核实）+ 用户战略决策
+> 决策记录（2026-08-25）：**乙方（独立 app + MCP）**；awesome-dsh-plugin 收录**放弃**（不重要）；MCP **本轮就做**；单源治理采纳评审方案；评审项全清；危险测试环境变量门控；状态目录统一 `~/.disk-clean/`。
+
+## 一、为什么砍掉 DSH 专有形态
+
+实测依据（本次核实，非推断）：
+
+| 事实 | 证据 |
+|---|---|
+| `harness.*` 只存在于**动态插件求值环境**；静态挂载插件一律用 `ctx.tools.register` | 官方 `dsh-tool-cordis` / `dsh-schedule` 均 `import { defineTool } from '@deepseek-ai/dsh-tools'` + `ctx.tools.register(...)`；`harness.handle` 只出现在文档字符串里 |
+| 出货 preset 挂的是静态宿主半，其 `harness` 出现 **0 次**、RPC 段为空 | `agent.cordis.yml` 仅挂 `host.static5.js`；该文件 `harness` 计数 0 → **面板在出货形态技术不可行**（重写即第五份 UI） |
+| DSH 自带 **MCP 客户端** | `@deepseek-ai/dsh-mcp-client`：`StdioClientTransport({command})` / Streamable HTTP、`tools/list`、`tools/call` |
+| 安全修复已在 DSH 形态漂移失效 | `host.static5.js` **无** `isCloudSyncPath`、**无** `stale-large`（lib 侧已修） |
+| DSH 形态缺陷密度最高、测试为零 | 锐评 P0-1/2/3/4 全在宿主半；`test/` 无一文件触及它 |
+
+**结论**：AI 操作磁盘的价值 = "对话式多步分析 + 审批门控的破坏性操作"，这个价值**不需要 DSH 专有代码**；而 DSH 形态是整个仓库维护成本最高、缺陷最密的 3400 行。改用标准协议 MCP：DSH 用户零成本接入（一行 mcp-client 配置），同时覆盖 Claude Desktop / Cursor / 任意 MCP host。
+
+## 二、被删除的问题（随 `plugin/` 一起消失）
+
+评审的 **P0-1**（审计自毁）、**P0-2**（32KB argv 写入天花板 + 绕沙箱）、**P0-3**（死面板）、**P1-5**（状态写在安装目录 + 跨会话泄漏）、**P2-1**（双宿主半 2100 行漂移）、**P2-2**（node 路径硬编码）、**§2.3**（生成物 4300 行冗余 + 硬编码开发机路径的 sync 脚本）、**§2.5**（5 个开发技能污染 preset + 22 处死指针 + release-sop 缺 frontmatter）、**P2-8** —— 全部因删除而解决，无需修复。
+
+## 三、仍需修复（缺陷在共享 `lib/`，CLI/GUI/MCP 三方共用）
+
+| # | 评审项 | 修复 | 状态 |
+|---|---|---|---|
+| 1 | P0-4 清理失败仍报成功 | `lib/clean.js`：`executed===0 && paths>0` → `ok:false`；`recycle-bin` 校验 stdout 含 OK + 二次确认条目数下降；错误摘要带 `stderr` | ✅ |
+| 2 | P1-1 回收站清空无白名单（唯一不可逆操作） | 默认拒绝"部分清空"语义；确认文案写明**将永久删除回收站内全部 N 项（含非本工具项）**，N 取真实值（`recycleStats()`） | ✅ |
+| 3 | P1-2 `junk-temp` 白名单是"含 temp 字样" | 改为集合白名单，来源 `suggestions[type=junk-temp].paths`（引擎已输出）；`hasTempSegment` 精确段匹配；`inRoots` 补分隔符边界 | ✅ |
+| 4 | P1-3 保护名单 5 份副本且缺项 | 新建 `lib/guard.js` 单一常量 `PROTECTED_SEGMENTS`（补 `windows.old/recovery/perflogs/$windows.~bt/$windows.~ws/msocache/config.msi/boot/efi`，共 16 段）；`clean/organize/serve` 全部 require | ✅ |
+| 5 | P1-4 硬链接回滚 read→unlink→write 裸奔 | 改 rename→`copyFileSync`→校验大小→删备份的原子序列（且不再整文件读入内存）；映射升级 `{victim,keep,size}` append-only；失败项保留可重试 | ✅ |
+| 6 | P2-3 `engines` 声明与实际不符 | `engines.node` → `>=18.15`（`statfsSync`）；README×2 + PLAYBOOK 三处统一 | ✅ |
+| 7 | P2-4 版本散落 6 处 | `lib/version.js` 单一事实源（`VERSION` 字面量，SEA 不依赖外部文件）；bin/serve 改 require；bump 脚本自带一致性自校验；新增 `test/version-consistency.js` 守门 7 个源 | ✅ |
+| 8 | P2-6 静态托管前缀比较 | `path.relative` 断言不以 `..` 开头且非绝对路径；测试补"同名前缀兄弟目录"用例 | ✅ |
+| 9 | P2-7 token 走 query string | 默认关闭 query 通道，仅 `DSK_ALLOW_QUERY_TOKEN=1` 放开；测试改 Bearer + 新增"query token 必须 401"用例 | ✅ |
+| 10 | P2-5 危险测试真删 + rules-parity 静默 SKIP | 真实删除用例 `DSK_TEST_REAL_DELETE=1` 门控；`all.js` 改固定清单（无隐式跳过）；CI 改 `npm ci` + 顶层 `permissions: contents: read` | ✅ |
+
+## 四、新增交付：MCP server
+
+```
+lib/mcp/tools.js       12 个工具定义（扫描/报告/盘符/清理/整理/去重/健康/配额/MFT/审计/回收站/配置），复用 lib/* 不复制逻辑  ✅
+lib/mcp/server.js      JSON-RPC 2.0 over stdio（initialize/ping/tools/list/tools/call + 5 错误码 + 串行队列），零依赖手写  ✅
+bin/disk-clean-mcp.js  入口（package.json bin: disk-clean-mcp）+ CLI `disk-clean mcp` 子命令  ✅
+test/mcp-protocol.js   协议测试：握手、注解透传、错误码、dry-run、负例（系统目录/OneDrive/越界/白名单外）、stdout 纯净性  ✅
+scripts/mcp-e2e.js     真实子进程端到端：扫描→清理→回收站恢复→查重→负例→审计，并验证 dry-run 零副作用  ✅
+```
+
+- **安全语义**：破坏性工具默认 dry-run；执行需显式 `confirm:true`；路径走 `lib/guard.js` 白名单 + 审计；host 侧权限提示由 MCP 客户端负责（DSH/Claude 均会弹）
+- **薄 preset：本次不做**。MCP 已让 DSH 零成本接入（一行 mcp-client 配置），而薄 preset 仍会引入 `~/.dsh` 状态目录与 DSH 版本耦合面。若将来需要，按本文件原设计补即可（零 JS，随时可删）。
+
+## 五、验收
+
+- [x] `plugin/` 及其在所有位置的副本删除；仓库无 DSH 专属 JS（`grep` 仅剩历史文档引用）
+- [x] MCP server：`initialize` → `tools/list`（12 工具）→ `tools/call` 全通过；负例（系统目录、清单外路径、OneDrive、越界、非法盘符、非法枚举）全拒绝
+- [x] `node test/all.js` 8/8 全绿（含 MCP 协议测试、版本一致性；危险用例默认跳过）
+- [x] 安全闸门单源：`lib/guard.js` 为唯一 `PROTECTED_SEGMENTS` 定义
+- [x] README×2 的"Option C"改为 MCP 接入说明；PLAYBOOK/技能同步更新
+- [ ] v0.5.0 构建 + 安装验证 + GitHub/npm 发布 ← **待用户启动代理后推送**
+
+## 六、实测记录（v0.5.0 端到端）
+
+```
+== initialize          server: disk-clean v0.5.0 | protocol 2024-11-05
+== tools/list          12 tools
+== disk_drives         C: 364 GB / 499 GB (73%)
+== disk_scan           ok=true files=6 bytes=27.4 KB dirs=5 elapsed=3ms
+== disk_clean dry-run  ok=true dryRun=true pathCount=3 | dry-run 零副作用: true
+== disk_clean confirm  ok=true executed=3/3 freed=27.4 KB
+== disk_recycle list   toolMatched=6 totalInBin=12
+== disk_recycle restore ok=true restored=6 failed=0（同名自动加 " (restored)" 后缀）
+== disk_dedup scan     ok=true groups=3 scannedFiles=12 save=42.0 KB
+== 安全负例            受保护系统路径 / OneDrive / 越界 / 白名单外 / 非法类型 / 非法盘符 → 全部 REFUSED
+== disk_audit          recycle-restore executed=6 ok；junk-temp executed=3 ok
+== stdout 纯净性        19 行响应，非协议行: 0；诊断信息只在 stderr
+```

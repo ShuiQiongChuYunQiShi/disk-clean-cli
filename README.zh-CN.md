@@ -6,6 +6,14 @@
 
 ---
 
+## v0.5.0 更新内容
+
+- **AI 接入方式改为 MCP**：新增内置 [MCP](https://modelcontextprotocol.io) server（`disk-clean mcp`，stdio，**零依赖**），把 12 个磁盘工具暴露给任意 MCP 客户端 —— DeepSeek Harness、Claude Desktop、Cursor 等都能直接调用。原先的 DSH 专有插件形态（约 3400 行 DSH 专属代码、无法在出货形态提供图表面板）已整体删除。
+- **12 个 MCP 工具**：`disk_scan` / `disk_report` / `disk_drives` / `disk_clean` / `disk_organize` / `disk_dedup` / `disk_health` / `disk_quota` / `disk_mftscan` / `disk_audit` / `disk_recycle` / `disk_config`。全部带 MCP 注解（`readOnlyHint` / `destructiveHint`），破坏性工具**默认 dry-run**，必须显式 `confirm:true`。
+- **安全闸门单源化**：新增 `lib/guard.js` 作为唯一事实源（受保护路径 / OneDrive 云同步 / 扫描根归属），`clean.js`、`organize.js`、`serve.js` 不再各写一份。受保护段扩充到 16 个（新增 `Windows.old`、`$Windows.~BT`、`Recovery`、`PerfLogs`、`MSOCache`、`Config.Msi`、`Boot`、`EFI`）。
+- **版本单一事实源**：新增 `lib/version.js`。此前版本号散落在 6 处，现在只有一处可写、其余派生，`bump-version.js` 改完立即自校验，`test/version-consistency.js` 守住漂移。
+- **修复的实际缺陷**：清理 0 项时不再误报成功；清空回收站回报真实条目数并标注不可恢复；硬链接回滚改为原子序列（不再整文件读进内存、不再"先删后写"）；静态托管越界判定改用 `path.relative`；query 里的 token 默认不再接受；临时目录判定改精确段匹配（`temporary-report` 不再被误判）。
+
 ## v0.4.1 更新内容
 
 - **OneDrive 云端安全**：`\OneDrive\` 文件会计入统计，但不参与哈希/查重与破坏性清理；报告与界面显著提示“OneDrive 云端文件不参与查重与清理”。
@@ -31,7 +39,7 @@
 | OneDrive 云端安全（统计保留，不哈希/不删） | ✅ | ❌ | ❌ | ❌ |
 | 一键全清（仅低风险批量） | ✅ | ❌ | ❌ | ❌ |
 | 开源、无遥测、无广告 | ✅ | ✅ | ❌ | ❌ |
-| AI 集成（可选，经 DSH） | ✅（插件） | ❌ | ❌ | ❌ |
+| **AI 集成（MCP，任意客户端通用）** | ✅ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -45,16 +53,30 @@
 .\disk-clean-win-x64.exe scan D:\
 ```
 
-### 方式 B —— 通过 Node.js（>= 14.16）
+### 方式 B —— 通过 Node.js（>= 18.15）
 
 ```powershell
 npm install -g disk-clean    # 或：git clone + npm link
 disk-clean scan D:\
 ```
 
-### 方式 C —— DeepSeek Harness 插件（AI 驱动）
+### 方式 C —— MCP server（AI 驱动，任意客户端通用）
 
-同一引擎也以 DSH agent preset（`disk-analyzer`）形式提供，支持自然语言控制与实时图表面板。见 [plugin/README.md](plugin/README.md)。
+`disk-clean mcp` 启动一个标准 **MCP（Model Context Protocol）** server，通过 stdio 把 12 个磁盘工具暴露给 AI 客户端。零依赖、不需要额外的 SDK。
+
+```jsonc
+// DeepSeek Harness / Claude Desktop / Cursor —— 通用配置
+{
+  "mcpServers": {
+    "disk-clean": { "command": "npx", "args": ["-y", "disk-clean", "mcp"] }
+  }
+}
+```
+
+配置之后可以直接对 AI 说：
+> "D 盘快满了，先扫一遍告诉我哪些能清，再帮我把临时文件和空目录清掉。"
+
+AI 的典型调用链是 `disk_drives`（看容量）→ `disk_scan`（扫描出报告）→ `disk_clean`（先 dry-run 预览，再 `confirm:true` 执行）。**破坏性工具默认只预览**，AI 必须显式确认才动文件；系统目录、OneDrive 云同步目录、扫描范围外的路径一律拒绝。本地开发可直接用 `node bin/disk-clean-mcp.js`。
 
 ### 方式 D —— 原生 GUI 窗口（WebView2）
 
@@ -115,6 +137,9 @@ disk-clean organize apply --yes --restore-point
 
 # 15. 英文报告
 disk-clean scan D:\ --lang en
+
+# 16. 启动 MCP server（供 AI 客户端接入；stdio 常驻）
+disk-clean mcp
 ```
 
 ---
@@ -137,6 +162,7 @@ disk-clean scan D:\ --lang en
 | `dedup [roots...]` | 全盘重复文件检测（排除系统/程序目录；头部/尾部 + 全量哈希策略）。`--hardlink --yes` 将重复文件合并为硬链接；`dedup rollback` 还原。 |
 | `quota [drive]` | 通过 MFT 做按用户配额分析（需管理员）：用户排名 + 每人 Downloads/Documents/Desktop/… 明细。 |
 | `health` | SMART / SSD 健康：温度、磨损百分比、通电小时、读写错误并给出健康等级。 |
+| `mcp` | 启动 **MCP server**（stdio，12 个工具），供 DeepSeek Harness / Claude Desktop / Cursor 等 AI 客户端接入。stdout 只输出协议消息，诊断信息走 stderr。 |
 | `--restore-point` | 加在 `clean` / `organize apply` 前，先创建系统还原点（系统保护关闭时优雅失败）。 |
 | `--lang en\|zh` | `scan` 的报告语言（自动检测，默认跟随系统语言）。 |
 
@@ -147,8 +173,9 @@ disk-clean scan D:\ --lang en
 - **默认 dry-run** —— 每个破坏性命令先打印它将*会*做什么；加 `--yes` 才真正执行。
 - **回收站** —— 垃圾/空目录/重复文件先移入回收站，而非直接永久删除。
 - **回滚** —— 目录移动追加进 `organize-map.json`；`organize rollback` 还原上一批（含快捷方式）。
-- **受保护路径** —— `\windows\`、`\program files*\`、`\programdata\`、`\winsxs\`、`\system volume information\`、`\$recycle.bin\` 永远拒绝操作。
-- **审计日志** —— 每项操作追加到 `~/.disk-clean/audit.jsonl`（时间 / 类型 / 路径 / 结果）。
+- **受保护路径** —— 16 个受保护段永远拒绝操作：`\windows\`、`\windows.old\`、`\program files*\`、`\programdata\`、`\winsxs\`、`\system volume information\`、`\$recycle.bin\`、`\$windows.~bt\`、`\$windows.~ws\`、`\recovery\`、`\perflogs\`、`\msocache\`、`\config.msi\`、`\boot\`、`\efi\`。名单只有一份（`lib/guard.js`）。
+- **OneDrive 云同步** —— 含 `\OneDrive\` 段的路径一并拒绝破坏性操作（删除会同步影响云端；哈希会触发占位文件静默下载）。
+- **审计日志** —— 每项操作追加到 `~/.disk-clean/audit.jsonl`（时间 / 类型 / 路径 / 结果 / 真实条目数）。
 - **退出码** —— 0 正常 · 1 用户取消/参数错误 · 2 运行错误 · 3 扫描被取消。
 
 状态文件位于 `~/.disk-clean/`：
@@ -198,16 +225,19 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm run smoke     # 引擎冒烟测试
+npm test          # 全量测试（8 个套件，含 MCP 协议 / 规则完整性 / 版本一致性）
+npm run mcp       # 本地起一个 MCP server
 powershell -File scripts\build.ps1   # 构建 exe + sha256
 ```
 
-- 引擎：`lib/engine.js` —— 零依赖 Node（原生 `fs`），仅快捷方式修复使用 PowerShell COM。
-- CLI 是薄壳；引擎同样以内嵌形式存在于 DSH 插件形态中。
+- 引擎：`lib/engine-core.js`（唯一可编辑核心）→ `lib/engine.js`（薄壳）—— 零依赖 Node（原生 `fs`），仅快捷方式修复使用 PowerShell COM。
+- 安全闸门：`lib/guard.js`（单一事实源）；版本：`lib/version.js`（单一事实源）。
+- MCP：`lib/mcp/server.js`（协议核心，零依赖）+ `lib/mcp/tools.js`（12 个工具，全部是 `lib/*` 的薄封装）。
+- CLI 与 MCP server 都是薄壳，业务逻辑没有第二份。
 
 ## 可复用流程
 
-见 [docs/RELEASE-PLAYBOOK.md](docs/RELEASE-PLAYBOOK.md) —— 构建 DSH 插件 + CLI、发布到 GitHub 并产出 Release 资产的逐步 SOP（可用于新项目复用）。历史回顾与错误目录：[docs/PROCESS-REVIEW.md](docs/PROCESS-REVIEW.md)。
+见 [docs/RELEASE-PLAYBOOK.md](docs/RELEASE-PLAYBOOK.md) —— 构建 CLI/GUI、发布到 GitHub 与 npm 并产出 Release 资产的逐步 SOP（可用于新项目复用）。GUI 专项细节见 `skills/gui-development`，发布专项见 `skills/release-sop`。
 
 ## Roadmap
 

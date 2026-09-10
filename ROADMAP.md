@@ -1,16 +1,20 @@
 # disk-clean-cli — 开发路线图（ROADMAP）
 
-> 目标：将 DSH 插件形态的磁盘清理与分析引擎，演进为**可发布 GitHub、可独立使用**的开源 CLI 工具。
+> 目标：把磁盘清理与分析引擎做成**可发布 GitHub/npm、可独立使用**的开源工具，
+> 并以标准 **MCP** 协议把能力开放给任意 AI 客户端。
 > 定位：Windows 磁盘扫描 / 分类 / 智能建议 / 安全清理 / 目录整理（含快捷方式修复）。
-> 差异化卖点：① 快捷方式自动修复+可回滚（业界首创）② 审计日志+完整回滚 ③ Markdown 可读报告 ④ AI 可选集成。
+> 差异化卖点：① 快捷方式自动修复+可回滚（业界首创）② 审计日志+完整回滚 ③ Markdown 可读报告 ④ **MCP 接入 AI（任意客户端通用）**。
 
 ---
 
 ## 0. 总体策略
 
-- **独立仓库**：`disk-clean-cli`（本目录），与 DSH 插件仓库分开，互相链接。
+- **单一仓库、三形态薄壳**：CLI（`bin/disk-clean.js`）+ MCP server（`bin/disk-clean-mcp.js`）
+  + GUI（`gui/`）都只是 `lib/` 的壳，业务逻辑与安全规则只有一份。
 - **零 npm 运行时依赖**：引擎使用 Node 内置模块 + PowerShell（仅快捷方式 COM 修复需要），保证 `pkg` 打包后单文件 exe 可跑。
-- **安全默认**：所有破坏性操作默认 `--dry-run`，必须显式 `--yes` 才执行；目录移动写 undo 映射可回滚。
+- **安全默认**：所有破坏性操作默认 `--dry-run`（MCP 侧默认 dry-run，需 `confirm:true`），
+  必须显式 `--yes` 才执行；目录移动写 undo 映射可回滚。
+- **安全闸门/版本号/规则表各自只有一个事实源**：`lib/guard.js` / `lib/version.js` / `lib/rules.js`。
 - **输出双格式**：JSON（机器可读）+ Markdown（人类可读），为 AI 集成与报告渲染留接口。
 - **分阶段**：P0 先让"有人愿意试"，P1 补可用性，P2 补场景，P3 补保险与国际化。每阶段有明确验收标准，完成再进下一阶段。
 
@@ -297,11 +301,6 @@ Commands:
 | Phase 10 | 2026-08-16 | 系统还原点：organize apply / clean 支持 `--restore-point`（Checkpoint-Computer，.ps1 文件模式）；本机系统保护已开启（1 个还原点），创建受 Windows 24h 频率限制时明确提示且不中断（验收通过）；失败降级写日志 |
 | Phase 11 | 2026-08-16 | i18n 多语言：lib/i18n.js（en/zh 字典 + 自动检测：--lang > DSH_LANG/LANG > 系统语言）；scan Markdown 报告标题/表格双语（# Disk Scan Report / ## Summary 等），`--lang en|zh` 实测通过 |
 | Phase 12 | 2026-08-16 | **GitHub 发布完成** ✅：仓库 https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli（Public）；Release v0.2.0（disk-clean-win-x64.exe 82.1MB + SHA256SUMS.txt）；CI build workflow 绿（syntax check 全 lib → smoke test → esbuild → SEA build → checksums → artifact → release）；修复 smoke test 绝对路径、build-sea.ps1 编码（ASCII-only，pwsh7 兼容）+ 版本自动读取 |
-| Phase 5 | ⬜ | — |
-| Phase 6 | ⬜ | — |
-| Phase 7 | ⬜ | — |
-| Phase 8 | ⬜ | — |
-| Phase 9 | ⬜ | — |
-| Phase 10 | ⬜ | — |
-| Phase 11 | ⬜ | — |
-| Phase 12 | ⬜ | — |
+| Phase 13 | 2026-08-17 | v0.4.0：架构单源化（`lib/engine-core.js` 唯一核心 + `lib/engine.js` 薄壳 + `lib/rules.js` 规则表）；GUI 报告 Tab 化；npm 发布 |
+| Phase 14 | 2026-08-17 | v0.4.1：OneDrive 云同步安全（不哈希/不清理，显著提示）；一键全清（仅低风险）；健康趋势 sparklines；回收站恢复（审计匹配）；GUI 细节修复（默认选盘/容量误读/图标） |
+| Phase 15 | 2026-08-25 | v0.5.0（**架构转向**）：删除 DSH 专有插件形态（~3400 行），改用标准 **MCP** 协议接入 AI；**12 个 MCP 工具**；`lib/guard.js` 安全闸门单源（受保护段 8→16）；`lib/version.js` 版本单源（6 处散落 → 1 处可写 + 自动守门）；清除锐评全部 10 项技术债（0 项误报成功、回收站真实规模、硬链接回滚原子化、静态托管越界、query token、危险测试门控）；测试 5→8 套件全绿；端到端实测通过 |

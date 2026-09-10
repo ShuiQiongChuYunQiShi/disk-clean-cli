@@ -8,6 +8,9 @@ on:
     branches: ['master']
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -26,11 +29,13 @@ jobs:
           node --check gui\web\ui-kit.js
           node --check gui\web\app.js
 
-      - name: Test suite (smoke + edge + safety + parity)
+      - name: Test suite
+        # engine-smoke / engine-edge / clean-safety / organize-safety /
+        # serve-integration / mcp-protocol / version-consistency
         run: node test/all.js
 
-      - name: Install build deps
-        run: npm install --save-dev esbuild postject
+      - name: Install build deps (from lockfile)
+        run: npm ci
 
       - name: Build exe (Node SEA)
         run: powershell -ExecutionPolicy Bypass -File scripts\build-sea.ps1
@@ -48,6 +53,8 @@ jobs:
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
+        permissions:
+          contents: write
         uses: softprops/action-gh-release@v2
         with:
           files: |

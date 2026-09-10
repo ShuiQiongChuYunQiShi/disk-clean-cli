@@ -1,13 +1,14 @@
 {
   "name": "disk-clean",
-  "version": "0.4.1",
-  "description": "Windows disk cleanup & analysis CLI — scan, classify, suggest, safely organize (with shortcut fixing) and clean. Zero runtime dependencies.",
+  "version": "0.5.0",
+  "description": "Windows disk cleanup & analysis CLI + MCP server — scan, classify, suggest, safely organize (with shortcut fixing) and clean. Zero runtime dependencies.",
   "repository": { "type": "git", "url": "https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli.git" },
   "bugs": { "url": "https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/issues" },
   "homepage": "https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli#readme",
   "license": "MIT",
   "bin": {
-    "disk-clean": "./bin/disk-clean.js"
+    "disk-clean": "./bin/disk-clean.js",
+    "disk-clean-mcp": "./bin/disk-clean-mcp.js"
   },
   "main": "./lib/engine.js",
   "files": [
@@ -18,13 +19,15 @@
   ],
   "scripts": {
     "start": "node bin/disk-clean.js",
-    "check": "node --check bin/disk-clean.js && node --check lib/engine.js && node --check lib/rules.js && node --check lib/health.js && node --check lib/clean.js && node --check lib/serve.js && node --check lib/audit.js && node --check gui/web/app.js && node --check gui/web/ui-kit.js",
+    "mcp": "node bin/disk-clean-mcp.js",
+    "check": "node --check bin/disk-clean.js && node --check bin/disk-clean-mcp.js && node --check lib/engine.js && node --check lib/rules.js && node --check lib/health.js && node --check lib/clean.js && node --check lib/guard.js && node --check lib/serve.js && node --check lib/audit.js && node --check lib/version.js && node --check lib/mcp/server.js && node --check lib/mcp/tools.js && node --check scripts/mcp-e2e.js && node --check gui/web/app.js && node --check gui/web/ui-kit.js",
     "smoke": "node test/engine-smoke.js",
+    "e2e:mcp": "node scripts/mcp-e2e.js",
     "test": "node test/all.js",
     "prepublishOnly": "node test/all.js"
   },
   "engines": {
-    "node": ">=14.16"
+    "node": ">=18.15"
   },
   "keywords": [
     "disk-cleanup",
@@ -33,7 +36,10 @@
     "cleaner",
     "duplicates",
     "organize",
-    "cli"
+    "cli",
+    "mcp",
+    "model-context-protocol",
+    "ai-agent"
   ],
   "os": [
     "win32"
