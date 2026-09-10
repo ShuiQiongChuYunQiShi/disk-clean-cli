@@ -12,11 +12,18 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 const argv = process.argv.slice(2);
-const exeIdx = argv.indexOf('--exe');
-const exe = exeIdx >= 0 ? argv[exeIdx + 1] : null;
-const root = argv.filter(function (a, i) { return a !== '--exe' && i !== exeIdx + 1 })[0];
+// 解析位置参数与选项：位置参数是测试根目录，--exe 指定打包后的可执行文件。
+// 注意别用 exeIdx+1 做索引过滤——没有 --exe 时 exeIdx=-1 会把第一个位置参数也滤掉。
+const positional = [];
+let exe = null;
+for (let i = 0; i < argv.length; i++) {
+  if (argv[i] === '--exe') { exe = argv[i + 1]; i++; continue }
+  positional.push(argv[i]);
+}
+const root = positional[0];
 if (!root) { console.error('usage: node scripts/mcp-e2e.js <root> [--exe <path>]'); process.exit(1) }
 if (exe && !fs.existsSync(exe)) { console.error('exe not found: ' + exe); process.exit(1) }
+if (!fs.existsSync(root)) { console.error('test root not found: ' + root); process.exit(1) }
 
 // 隔离状态目录，避免污染真实 ~/.disk-clean
 const HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'dsk-e2e-home-'));
@@ -113,17 +120,39 @@ const log = console.log;
   log('== disk_recycle list（应能看到刚清理的项）');
   const rec = await call('disk_recycle', { cmd: 'list' });
   log('   toolMatched=' + rec.v.toolMatched + ' totalInBin=' + rec.v.totalInBin);
+  if (rec.v.hint) log('   hint: ' + rec.v.hint);
+
+  // 刚确认清理了 N 项，那么回收站里就必须能找回这 N 项。
+  // 这里必须断言，否则匹配逻辑坏掉时（例如路径拼写不一致导致失配）
+  // 测试会"静默通过"，把不可恢复的清理当成成功发布出去 —— 实测踩过。
+  const cleanedCount = real.v.executed || 0;
+  if (cleanedCount > 0 && (rec.v.toolMatched || 0) < cleanedCount) {
+    throw new Error('清理了 ' + cleanedCount + ' 项，但 disk_recycle list 只匹配到 ' +
+      (rec.v.toolMatched || 0) + ' 项 —— 这些项将无法通过本工具恢复。' +
+      '回收站内共 ' + rec.v.totalInBin + ' 项。' + (rec.v.hint ? ' hint: ' + rec.v.hint : ''));
+  }
+  log('   匹配数与清理数一致（' + rec.v.toolMatched + ' >= ' + cleanedCount + '）');
 
   log('== disk_recycle restore dry-run');
   const rkeys = (rec.v.items || []).map(i => i.key);
   const rrestore = await call('disk_recycle', { cmd: 'restore', keys: rkeys });
   log('   ok=' + rrestore.v.ok + ' dryRun=' + rrestore.v.dryRun + ' wouldRestore=' + rrestore.v.wouldRestore + (rrestore.v.error ? ' error=' + rrestore.v.error : ''));
+  if (!rrestore.v.dryRun) throw new Error('未确认的 restore 必须停留在 dry-run：' + JSON.stringify(rrestore.v).slice(0, 200));
 
   log('== disk_recycle restore confirm=true');
   const rreal = await call('disk_recycle', { cmd: 'restore', keys: rkeys, confirm: true });
   const restored = (rreal.v.results || []).filter(x => x.ok).map(x => x.restoredTo);
   log('   ok=' + rreal.v.ok + ' restored=' + rreal.v.restored + ' failed=' + rreal.v.failed);
   for (const p of restored) log('   已恢复到: ' + p + '（存在: ' + fs.existsSync(p) + '）');
+  if (rkeys.length && (rreal.v.restored || 0) === 0) {
+    throw new Error('有 ' + rkeys.length + ' 个候选 key 但一项都没恢复成功：' +
+      JSON.stringify(rreal.v).slice(0, 300));
+  }
+  // 恢复必须真的把文件放回磁盘，而不只是回报 ok
+  const missingOnDisk = restored.filter(p => !fs.existsSync(p));
+  if (missingOnDisk.length) {
+    throw new Error('报告已恢复但磁盘上不存在：' + missingOnDisk.join(', '));
+  }
 
   log('== disk_dedup scan');
   const dd = await call('disk_dedup', { cmd: 'scan', roots: [root], minBytes: 1 });

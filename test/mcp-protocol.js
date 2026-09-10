@@ -22,10 +22,56 @@ process.env.HOME = TMP_HOME;
 
 const audit = require('../lib/audit.js');
 const { createServer, ERR } = require('../lib/mcp/server.js');
-const { tools, SERVER_INFO } = require('../lib/mcp/tools.js');
+const { tools, SERVER_INFO, canonKey } = require('../lib/mcp/tools.js');
 
 function assert(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); }
 function rmrf(p) { try { fs.rmSync(p, { recursive: true, force: true }) } catch (e) { /* ignore */ } }
+
+// ---- 路径归一化（回收站匹配的基础）----
+// 审计日志记录的是调用方给的原样路径，回收站 $I 记录的是系统写入的规范路径，
+// 两者拼写经常不同。下面这组用例覆盖真实失配来源；短名用例在支持 8.3 短名的卷上
+// 会真正构造出第二种拼写，不支持时自动降级为其它用例（不影响结论）。
+function testCanonKey() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsk-canon-'));
+  try {
+    fs.mkdirSync(path.join(root, 'sub'), { recursive: true });
+
+    // 构造一个真实存在的 8.3 短名拼写
+    function shortForm(longPath) {
+      const parts = longPath.split('\\');
+      for (let i = parts.length - 1; i >= 1; i--) {
+        if (parts[i].length <= 6) continue;
+        for (let n = 1; n <= 9; n++) {
+          const cand = parts.slice(0, i).concat(parts[i].slice(0, 6).toUpperCase() + '~' + n, parts.slice(i + 1)).join('\\');
+          if (cand.toLowerCase() !== longPath.toLowerCase() && fs.existsSync(cand)) return cand;
+        }
+      }
+      return null;
+    }
+
+    const a = canonKey(path.join(root, 'sub'));
+    assert(a === canonKey(root.toUpperCase() + '\\SUB'), '大小写归一');
+    assert(a === canonKey(path.join(root, 'sub') + '\\'), '尾部分隔符归一');
+    assert(a === canonKey(path.join(root, '.', 'sub')), '".\\" 归一');
+    assert(a === canonKey(path.join(root, 'sub', '..', 'sub')), '".." 归一');
+
+    // 已不存在（被清理掉）的路径同样要能归一 —— 这是回归重点：
+    // 上一版只对父目录 realpath，而清理后父目录已不存在，导致两边各留各的拼写而失配。
+    const goneA = canonKey(path.join(root, 'gone-sub', 'Temp'));
+    const goneB = canonKey(path.join(root, 'GONE-SUB', 'temp') + '\\');
+    assert(goneA === goneB, '不存在的路径也要归一一致（清理后的真实情形）');
+
+    const short = shortForm(root);
+    if (short) {
+      assert(canonKey(path.join(short, 'sub')) === a, '8.3 短名与长名归一一致（存在时）');
+      assert(canonKey(path.join(short, 'gone-sub', 'Temp')) === goneA, '8.3 短名与长名归一一致（不存在时）');
+      return 'short-name cases run';
+    }
+    return 'short names unavailable on this volume';
+  } finally {
+    rmrf(root);
+  }
+}
 
 // 与 test/clean-safety.js 同构的合成报告
 function synthReport() {
@@ -105,6 +151,10 @@ function toolOk(res) {
 async function main() {
   // ================= A. 进程内协议层 =================
   const h = makeHarness();
+
+  // A-1. 路径归一化（回收站匹配的前提，不需要真实删除）
+  const canonNote = testCanonKey();
+  console.log('   路径归一化用例: ' + canonNote);
 
   // A0. 无报告时：依赖报告的工具必须明确报错并给出下一步
   const noReport = toolError(await h.rpc('tools/call', { name: 'disk_report', arguments: {} }));
@@ -270,7 +320,7 @@ async function main() {
   assert(byId[2] && byId[2].result.tools.length >= 12, 'B 子进程 tools/list');
   assert(byId[3] && byId[3].result && !byId[3].result.isError, 'B 子进程 tools/call disk_drives');
 
-  console.log('PASS mcp-protocol: ' + list.length + ' tools, 协议/注解/错误码/安全负例/子进程 stdout 纯净性 均通过');
+  console.log('PASS mcp-protocol: ' + list.length + ' tools, 协议/注解/错误码/安全负例/路径归一化/子进程 stdout 纯净性 均通过');
 }
 
 main().then(function () {
