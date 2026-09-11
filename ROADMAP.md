@@ -189,18 +189,7 @@ Commands:
 - ✅ `disk-clean health`：读取所有物理盘 SMART（Get-PhysicalDisk + Get-StorageReliabilityCounter：温度/Wear/通电小时/读写错误），健康分级（健康/注意/警告/危险 + 具体问题列表）。
 - ✅ 本机两块 SSD 实测：JZ-SSD2T-XW 健康（39°C/寿命 0%）、J.ZAO KP SERIES 2TB SSD 注意（57°C 超 55°C 阈值，提示"温度 57°C"）。
 - ✅ 结果落盘 `~/.disk-clean/health.json`；PS 脚本走临时 .ps1（`-File` 避免多行 `-Command` 传参问题）。
-
----
-
-## 9. Phase 7 — SMART / SSD 健康（优化⑥）
-
-- ✅ `disk-clean health`：读取各盘 SMART 数据：
-  - HDD：Reallocated Sectors、Pending Sectors、Power-On Hours、温度（wmic / PowerShell Get-PhysicalDisk）
-  - SSD：SSD Wear（Percent Lifetime Used，Get-PhysicalDisk 的 Wear）
-- ✅ 输出：健康等级（健康/注意/警告/危险）+ 问题列表 + JSON 落盘。
-- ⬜ 集成：scan 报告可选包含 health 摘要（v1.1）。
-
-**验收**：真实机器上输出每块盘的 SMART 关键指标与健康等级。
+- ⬜ **未完成**：scan 报告可选包含 health 摘要（原计划 v1.1，至今未做）。
 
 ---
 
@@ -301,6 +290,6 @@ Commands:
 | Phase 10 | 2026-08-16 | 系统还原点：organize apply / clean 支持 `--restore-point`（Checkpoint-Computer，.ps1 文件模式）；本机系统保护已开启（1 个还原点），创建受 Windows 24h 频率限制时明确提示且不中断（验收通过）；失败降级写日志 |
 | Phase 11 | 2026-08-16 | i18n 多语言：lib/i18n.js（en/zh 字典 + 自动检测：--lang > DSH_LANG/LANG > 系统语言）；scan Markdown 报告标题/表格双语（# Disk Scan Report / ## Summary 等），`--lang en|zh` 实测通过 |
 | Phase 12 | 2026-08-16 | **GitHub 发布完成** ✅：仓库 https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli（Public）；Release v0.2.0（disk-clean-win-x64.exe 82.1MB + SHA256SUMS.txt）；CI build workflow 绿（syntax check 全 lib → smoke test → esbuild → SEA build → checksums → artifact → release）；修复 smoke test 绝对路径、build-sea.ps1 编码（ASCII-only，pwsh7 兼容）+ 版本自动读取 |
-| Phase 13 | 2026-08-17 | v0.4.0：架构单源化（`lib/engine-core.js` 唯一核心 + `lib/engine.js` 薄壳 + `lib/rules.js` 规则表）；GUI 报告 Tab 化；npm 发布 |
-| Phase 14 | 2026-08-17 | v0.4.1：OneDrive 云同步安全（不哈希/不清理，显著提示）；一键全清（仅低风险）；健康趋势 sparklines；回收站恢复（审计匹配）；GUI 细节修复（默认选盘/容量误读/图标） |
-| Phase 15 | 2026-08-25 | v0.5.0（**架构转向**）：删除 DSH 专有插件形态（~3400 行），改用标准 **MCP** 协议接入 AI；**12 个 MCP 工具**；`lib/guard.js` 安全闸门单源（受保护段 8→16）；`lib/version.js` 版本单源（6 处散落 → 1 处可写 + 自动守门）；清除锐评全部 10 项技术债（0 项误报成功、回收站真实规模、硬链接回滚原子化、静态托管越界、query token、危险测试门控）；测试 5→8 套件全绿；端到端实测通过 |
+| Phase 13 | 2026-08-21 | v0.4.0：架构单源化（`lib/engine-core.js` 唯一核心 + `lib/engine.js` 薄壳 + `lib/rules.js` 规则表）；GUI 报告 Tab 化；MFT 直读 / 全盘去重 / 配额 / 健康 / 计划任务落地（**npm 当时未发布，实际首发尚未执行**） |
+| Phase 14 | 2026-08-25 | v0.4.1：OneDrive 云同步安全（不哈希/不清理，显著提示）；一键全清（仅低风险）；健康趋势 sparklines；回收站恢复（审计匹配）；GUI 细节修复（默认选盘/容量误读/图标） |
+| Phase 15 | 2026-09-11 | v0.5.0（**架构转向**）：删除 DSH 专有插件形态（~3400 行），改用标准 **MCP** 协议接入 AI；**12 个 MCP 工具**；`lib/guard.js` 安全闸门单源（受保护段 8→16）；`lib/version.js` 版本单源（6 处散落 → 1 处可写 + 自动守门）；清除锐评全部 10 项技术债（0 项误报成功、回收站真实规模、硬链接回滚原子化、静态托管越界、query token、危险测试门控）；测试 5→**10** 套件全绿；端到端实测通过；GitHub 发布完成 |
