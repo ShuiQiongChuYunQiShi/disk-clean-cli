@@ -5,34 +5,10 @@
 > GitHub Releases 与 `docs/RELEASE_NOTES-v0.2.0.md`；补写需基于当时的提交内容，
 > 不要凭印象编造。
 
-## [Unreleased]
+## [0.6.0] - 2026-09-11
 
-### Fixed
-- **发布产物会被写成"哈希属于已不存在的构建"**（G53）：CI 在 tag 推送时会用它自己的 SEA 产物
-  创建 Release 并上传 `checksums.txt`，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——
-  旧的 `checksums.txt` 因此留在了 Release 上。v0.5.0 实际发生过：资产写着
-  `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。现第 3 步重算该文件并纳入上传清单，
-  第 4 步**下载回来断言哈希**（只比 size 抓不到）。线上 v0.5.0 的资产已同步修正。
-- `publish-release.ps1` 新增的响应体断言会在 PS 5.1 下误报（G54）：
-  `Invoke-WebRequest -UseBasicParsing` 的 `.Content` 在 5.1 返回 `Byte[]` 而非 String，
-  与 `-match` 比较恒为失败。已显式按 UTF-8 解码，并在 PS 5.1 宿主上复验通过。
-
-### Docs
-- 修正全仓库过期的测试套件数（9 → **10**）：`README.md`、`README.zh-CN.md`、
-  `docs/RELEASE-PLAYBOOK.md` §3.2、`docs/RELEASE_NOTES-v0.5.0.md`、
-  `skills/release-sop/SKILL.md`（后者同时补上漏列的 `ci-workflow.js`）。
-- 修正 CHANGELOG 中三个错误日期（与 GitHub Release / tag 实际日期对账）：
-  0.5.0 `2026-08-17` → `2026-09-11`、0.4.1 → `2026-08-25`、0.4.0 → `2026-08-21`。
-- `docs/OPTIMIZATION-PLAN.md`：加"历史归档"横幅；把 v0.4.0/v0.4.1 的状态头由
-  "待执行/等确认后开工"改为已发布；标注 v0.4.1 中**涉及已删除 `plugin/` 形态的任务全部作废**；
-  勾选 v0.5.0 的发布验收项。
-- `docs/PROCESS-REVIEW.md`：修复重复的 `### 7.2` 标题（改为 7.2 / 7.3 / 7.4）；
-  补编号体系图例（1–27 与 G1–G54 两套并存、G1–G8 是决策不是缺陷、G50–G54 的去向）；
-  更新过期的文件头与第七节标题；把"版本四源 + 人工 grep"更正为"`lib/version.js` 单源 + 测试守门"。
-- `docs/GUI-PLAN.md`：状态头由"v0.4.1 迭代进行中"更新为已随 v0.5.0 发布。
-- `docs/RELEASE-PLAYBOOK.md`：§4.3 补 checksums.txt 的 G53 铁律；§6 补第 31 条（G54）。
-
-## [Unreleased]
+> 主题：**安全加固**。一次第三方锐评对 v0.5.0 提出 1 个 P0 与 5 个安全/正确性缺陷，
+> 全部复现后修复；不新增功能。
 
 ### Security
 - **硬链接合并不再接受"仅头尾抽样"的近似重复组**（P0，评审 A1）：`dedup.js` 对 >32MB 的文件
@@ -64,12 +40,52 @@
   （读到空的 `merged` 后报"没有可回滚记录"）。现读写只在 `lib/dedup.js` 一处（`readDedupMap` /
   `writeDedupMap` / `appendDedupEntries`），一律写 `entries`、兼容读旧 `merged`；
   回滚改为 append-only（失败项保留记录供重试），不再整文件删除映射。
+- **回收站匹配统一走 `canonKey`**（评审 A7）：`tools.js` 早已用 `canonKey` 修掉 8.3 短名失配，
+  而 `serve.js` 仍用裸 `toLowerCase()` 比较 —— GUI 的"回收站恢复"列不出自己刚清理的项。
+  现 `canonKey` 上移到 `lib/guard.js` 单源，`tools.js` 与 `serve.js` 共用同一实现
+  （`tools.js` 保留同名导出以免破坏既有调用）。
+- **部分成功不再伪装成成功**（评审 B4）：`clean.execute` 在 `$ErrorActionPreference="Continue"`
+  下会静默跳过被占用/权限不足的项，`3/5` 也返回 `ok:true`，AI 只读 `ok` 便会宣布"清理完成"。
+  现返回 `partial:true` 并在措辞里写明"其余 N 项失败，未全部完成"；MCP 层对该情形上报
+  `isError:true`，确保模型不会照 `ok` 复述结论。
+- **回滚映射改为原子写**（评审 B3）：`organize-map.json` / 快捷方式记录此前用裸 `writeFileSync`，
+  进程在写入中途被杀会留下半截 JSON —— 读取端一律把解析失败 catch 成"空数组"，
+  于是回滚记录静默消失、已移动的文件再也回不来。现新增 `writeFileAtomic()`（临时文件 + 同目录 rename）。
+- **畸形 URL 转义不再打崩服务层**（评审 B6）：`serveStatic` 里 `decodeURIComponent` 遇到
+  `/%`、`%zz` 会抛 `URIError` 且无人捕获；现捕获后返回 400。
+- **发布产物不再被写成"哈希属于已不存在的构建"**（G53）：CI 在 tag 推送时用它自己的 SEA 产物
+  创建 Release 并上传 `checksums.txt`，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——
+  旧的 `checksums.txt` 因此留在了 Release 上。v0.5.0 实际发生过：资产写着
+  `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。现第 3 步重算该文件并纳入上传清单，
+  第 4 步**下载回来断言哈希**（只比 size 抓不到）。
+- `publish-release.ps1` 新增的响应体断言会在 PS 5.1 下误报（G54）：
+  `Invoke-WebRequest -UseBasicParsing` 的 `.Content` 在 5.1 返回 `Byte[]` 而非 String，
+  与 `-match` 比较恒为失败。已显式按 UTF-8 解码，并在 PS 5.1 宿主上复验通过。
 
 ### Added
-- `test/safety-gates.js`（接入 `test/all.js`，套件 10 → **11**）：专门覆盖上述 A1–A6。
+- `test/safety-gates.js`（接入 `test/all.js`，套件 10 → **11**）：专守上述 A1–A7 / B3 / B4 / B6。
   其中 A1 用**真实 >32MB 文件对**做端到端可达性证明 —— 先断言扫描确实判为 `approx`，
   再断言合并被拒绝且两文件内容未变，而非只喂合成对象。该套件在编写过程中即抓到
   修复自身的一次过度收紧（用遍历用 `isSkip` 判扫描根会连带跳过 `%TEMP%`）。
+
+### Docs
+- 修正全仓库过期的测试套件数（9 → **10** → **11**）：`README.md`、`README.zh-CN.md`、
+  `docs/RELEASE-PLAYBOOK.md` §3.2、`skills/release-sop/SKILL.md`
+  （后者同时补上此前漏列的 `ci-workflow.js`）。
+- 修正 CHANGELOG 中三个错误日期（与 GitHub Release / tag 实际日期对账）：
+  0.5.0 `2026-08-17` → `2026-09-11`、0.4.1 → `2026-08-25`、0.4.0 → `2026-08-21`。
+- `docs/OPTIMIZATION-PLAN.md`：加"历史归档"横幅；把 v0.4.0/v0.4.1 的状态头由
+  "待执行/等确认后开工"改为已发布；标注 v0.4.1 中**涉及已删除 `plugin/` 形态的任务全部作废**；
+  勾选 v0.5.0 的发布验收项。
+- `docs/PROCESS-REVIEW.md`：修复重复的 `### 7.2` 标题（改为 7.2 / 7.3 / 7.4）；
+  补编号体系图例（1–27 与 G1–G54 两套并存、G1–G8 是决策不是缺陷、G50–G54 的去向）；
+  更新过期的文件头与第七节标题；把"版本四源 + 人工 grep"更正为"`lib/version.js` 单源 + 测试守门"。
+- `docs/GUI-PLAN.md`：状态头由"v0.4.1 迭代进行中"更新为已随 v0.5.0 发布。
+- `ROADMAP.md`：合并重复的 `## 9. Phase 7` 段；状态追踪表的 Phase 13/14/15 日期与真实 Release 对账；
+  更正"npm 已发布"（实际首发未执行）与"测试 5→8 套件"（实为 11）。
+- `docs/RELEASE-PLAYBOOK.md`：§4.3 补 checksums.txt 的 G53 铁律；§4 补第 32–35 条
+  （抽样判重不得驱动破坏性操作 / 单源声明要能用 grep 证伪 / 前缀匹配与路径穿越一起审 /
+  测试没覆盖的边界等于没有边界）；§6 补第 31 条（G54）。
 
 ## [0.5.0] - 2026-09-11
 

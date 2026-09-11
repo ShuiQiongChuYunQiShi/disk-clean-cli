@@ -6,6 +6,20 @@
 
 ---
 
+## v0.6.0 更新内容
+
+**安全加固版 —— 建议所有 v0.5.x 用户升级。** 一次针对 v0.5.0 的独立锐评发现 1 个 P0 与若干安全缺陷，全部复现后修复。
+
+- **硬链接合并不再接受"仅头尾抽样"的近似组（P0，不可逆数据破坏）**：>32MB 的文件只比对头 64KB + 尾 64KB 就标 `approx:true`，而 CLI / MCP / GUI 三条路径都不过滤该标志就直接合并。实测复现：两个 33MB 文件（头尾相同、中间不同）被合并成硬链接，第二个文件内容永久消失，且 `.dsk-dup-bak` 备份已删除。现 `hardlinkGroup()` 硬性拒绝 approx 组；精确组照常合并，MCP 侧引导模型改用 `disk_clean duplicates`（回收站，可恢复）。
+- **安全闸门真正单源**：README 曾宣称保护名单只在 `lib/guard.js`，实际另有 4 份副本（各 7 段、缺 `windows.old`/`boot`/`efi`/`recovery` 等 9 段），且 `organize.js` 那份缺尾部匹配 —— 同一个 `C:\Users\me\windows` 清理侧拒绝、整理侧放行。
+- **硬链接合并过安全闸门**；扫描根自身受保护时（`C:\Windows\System32\drivers`）拒绝而非照常遍历。
+- **整理目标不再可穿越**：`C:\整理区\..\boot\x` 此前能通过前缀正则并被解析成 `C:\boot\x`。
+- **部分成功不再伪装成成功**：5 项只成功 3 项时返回 `partial:true`，MCP 层上报 `isError`，模型无法据此宣布"清理完成"。
+- **`dedup-map.json` 统一 schema**（MCP 写 `entries`、CLI/GUI 写 `merged`，导致 AI 合并的文件在别处回滚不了）；回收站匹配统一 `canonKey`（GUI 此前列不出自己的短名清理项）；回滚映射改原子写；畸形 URL 转义返回 400 而非抛异常。
+- **发布完整性**：CI 自己的 `checksums.txt` 曾与本地 exe 一起发布 —— v0.5.0 资产写着 `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。现发布脚本重算、上传并**下载回来断言哈希**。
+
+新增 `test/safety-gates.js`（套件共 11 个、23 组断言）守住以上每一项，含用**真实 >32MB 文件**做的端到端可达性证明。
+
 ## v0.5.0 更新内容
 
 - **AI 接入方式改为 MCP**：新增内置 [MCP](https://modelcontextprotocol.io) server（`disk-clean mcp`，stdio，**零依赖**），把 12 个磁盘工具暴露给任意 MCP 客户端 —— DeepSeek Harness、Claude Desktop、Cursor 等都能直接调用。原先的 DSH 专有插件形态（约 3400 行 DSH 专属代码、无法在出货形态提供图表面板）已整体删除。

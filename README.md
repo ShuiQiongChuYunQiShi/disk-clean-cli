@@ -8,6 +8,20 @@
 
 ---
 
+## What's new in v0.6.0
+
+**Security hardening — upgrade recommended for all v0.5.x users.** An independent review of v0.5.0 found one P0 and several safety defects; all were reproduced before being fixed.
+
+- **Hardlink merges no longer accept sampled matches (P0, irreversible data loss).** Files over 32MB are compared by head-64KB + tail-64KB only and flagged `approx:true` — but CLI, MCP and GUI all merged those groups anyway. Reproduced: two 33MB files with identical head/tail and different middles became a hardlink, and the second file's content was gone, with the `.dsk-dup-bak` backup already deleted. `hardlinkGroup()` now refuses approx groups outright; exact groups still merge normally, and MCP points the model at `disk_clean duplicates` (recycle bin, recoverable) instead.
+- **The safety gate is now genuinely single-source.** README claimed the protected-path list lived only in `lib/guard.js`; four more copies were alive (each with 7 segments instead of 16, missing `windows.old`, `boot`, `efi`, `recovery` and 5 more), and the copy in `organize.js` also lacked the trailing match — so `C:\Users\me\windows` was refused by clean and allowed by organize.
+- **Hardlink merging consults the gate**, and a scan root that is itself protected (`C:\Windows\System32\drivers`) is now refused instead of walked.
+- **Organize destinations can no longer traverse**: `C:\整理区\..\boot\x` used to pass a prefix regex and resolve to `C:\boot\x`.
+- **Partial cleans no longer report success.** If 3 of 5 items are locked or denied, the tool now returns `partial:true` and the MCP layer raises `isError`, so a model cannot announce "cleanup complete".
+- **`dedup-map.json` has one schema** (MCP wrote `entries`, CLI/GUI wrote `merged` — so files merged by the AI could not be rolled back elsewhere); recycle-bin matching uses `canonKey` on both paths (GUI could not list its own short-name cleanups); rollback maps are written atomically; malformed URL escapes return 400 instead of throwing.
+- **Release integrity**: a stale `checksums.txt` from CI's own build used to ship alongside the local exe — v0.5.0 shipped `sha256=72ce9f21…` for an exe hashing `3cbdc188…`. The publish script now recomputes, uploads and *downloads back to verify*.
+
+New `test/safety-gates.js` (11 suites total, 23 assertion groups) guards every item above — including an end-to-end proof with real >32MB files.
+
 ## What's new in v0.5.0
 
 - **AI integration moved to MCP**: a built-in [MCP](https://modelcontextprotocol.io) server (`disk-clean mcp`, stdio, **zero dependencies**) exposes 12 disk tools to any MCP client — DeepSeek Harness, Claude Desktop, Cursor. The previous DSH-only plugin form (~3400 lines of DSH-specific code that could never render its panel in the shipped build) is gone.

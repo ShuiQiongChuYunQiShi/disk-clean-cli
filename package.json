@@ -1,6 +1,6 @@
 {
   "name": "disk-clean",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Windows disk cleanup & analysis CLI + MCP server — scan, classify, suggest, safely organize (with shortcut fixing) and clean. Zero runtime dependencies.",
   "repository": { "type": "git", "url": "https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli.git" },
   "bugs": { "url": "https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/issues" },

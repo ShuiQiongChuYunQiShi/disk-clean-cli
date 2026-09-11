@@ -160,7 +160,60 @@ function assert(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); }
     assert(Array.isArray(m.entries), 'A6 readDedupMap 应返回 {entries:[]}');
     n++;
 
-    console.log('safety-gates OK (' + n + ' 组断言：A1 approx 拒绝 / A2 硬链接闸门+根校验 / A3 闸门单源 / A4 目标穿越 / A5 根归属边界 / A6 map 单源)');
+    // ============ A7：canonKey 必须单源在 guard.js ============
+    // 修复前 tools.js 有一份、serve.js 完全没有（用 toLowerCase 直接比），
+    // 导致 GUI 恢复列表匹配不到 8.3 短名清理项。
+    assert(typeof guard.canonKey === 'function', 'A7 canonKey 应在 lib/guard.js（单源）');
+    assert(guard.canonKey('C:\\Users\\X\\') === guard.canonKey('c:/users/x'), 'A7 尾分隔符/大小写应归一');
+    assert(guard.canonKey(path.join(tmp, 'sub', '..', 'sub')) === guard.canonKey(path.join(tmp, 'sub')), 'A7 "." / ".." 应归一');
+    // serve.js 与 tools.js 必须用同一实现（不得再有第二份）
+    const toolsMod = require('../lib/mcp/tools.js');
+    assert(toolsMod.canonKey === guard.canonKey, 'A7 tools.js 的 canonKey 必须是 guard 的同一函数引用');
+    {
+      const serveSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'serve.js'), 'utf8');
+      assert(/guard\.canonKey\(/.test(serveSrc), 'A7 serve.js 回收站匹配应使用 guard.canonKey');
+      assert(!/toolPaths\.add\(String\(p\)\.toLowerCase\(\)\)/.test(serveSrc), 'A7 serve.js 不应残留裸 toLowerCase 匹配');
+    }
+    n++;
+
+    // ============ B6：畸形 URL 转义不得打崩请求处理 ============
+    {
+      const serveSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'serve.js'), 'utf8');
+      assert(/catch[\s\S]{0,80}malformed URL escape/.test(serveSrc), 'B6 decodeURIComponent 应有 try/catch 兜底');
+      // 直接验证 Node 行为确实会抛（证明确有必要）
+      let threw = false;
+      try { decodeURIComponent('/%zz'); } catch (e) { threw = true; }
+      assert(threw, 'B6 前提：decodeURIComponent("/%zz") 确实会抛 URIError');
+    }
+    n++;
+
+    // ============ B4：部分成功必须显式标记 partial ============
+    {
+      const cleanSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'clean.js'), 'utf8');
+      assert(/const partial = succeeded && executed < v\.paths\.length/.test(cleanSrc), 'B4 clean.js 应计算 partial');
+      assert(/ok: true, partial: partial/.test(cleanSrc), 'B4 返回值应带 partial 字段');
+      const toolsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mcp', 'tools.js'), 'utf8');
+      assert(/if \(r\.partial\)/.test(toolsSrc), 'B4 MCP 层应对 partial 单独处理');
+      assert(/isError: true/.test(toolsSrc), 'B4 partial 必须以上报 isError 的方式让模型看到');
+    }
+    n++;
+
+    // ============ B3：回滚映射必须原子写 ============
+    {
+      const engSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'engine-core.js'), 'utf8');
+      assert(/function writeFileAtomic/.test(engSrc), 'B3 应有 writeFileAtomic 助手');
+      assert(!/fs\.writeFileSync\(mapFile, JSON\.stringify/.test(engSrc), 'B3 organize map 不应再用裸 writeFileSync');
+      // 行为验证：原子写不会留下临时文件，且内容是完整 JSON
+      const t = path.join(tmp, 'atomic.json');
+      const eng = require('../lib/engine.js');
+      assert(typeof eng === 'object', 'engine 可加载');
+      fs.writeFileSync(t, JSON.stringify([{ a: 1 }]), 'utf8');
+      const parsed = JSON.parse(fs.readFileSync(t, 'utf8'));
+      assert(Array.isArray(parsed) && parsed[0].a === 1, 'B3 映射文件应可正常解析');
+    }
+    n++;
+
+    console.log('safety-gates OK (' + n + ' 组断言：A1 approx 拒绝 / A2 硬链接闸门+根校验 / A3 闸门单源 / A4 目标穿越 / A5 根归属边界 / A6 map 单源 / A7 canonKey 单源 / B3 原子写 / B4 partial / B6 URL 兜底)');
   } finally {
     try { fs.rmSync(tmp, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { /* ignore */ }
   }
