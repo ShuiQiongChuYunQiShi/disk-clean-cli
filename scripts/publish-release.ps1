@@ -134,6 +134,13 @@ $enc = New-Object System.Text.UTF8Encoding($false)
 # Per-artifact .sha256 files are rewritten too, so they cannot disagree with the manifest.
 [System.IO.File]::WriteAllText("$engineExe.sha256", "$engineSha  disk-clean-win-x64.exe`n", $enc)
 [System.IO.File]::WriteAllText("$setupExe.sha256", "$setupSha  disk-clean-setup-$ver.exe`n", $enc)
+# checksums.txt is rewritten as well: CI publishes its own copy on tag push (built from
+# CI's own SEA run), and step 4 then clobbers the exe with the local build. Without this
+# rewrite the release ships a checksums.txt whose hash belongs to a build that is no
+# longer there (issue G53: v0.5.0 shipped sha256=72ce9f21... for an exe hashing 3cbdc188...).
+[System.IO.File]::WriteAllText((Join-Path $root "dist\checksums.txt"),
+  "disk-clean-win-x64.exe  sha256=$engineSha  size=$((Get-Item $engineExe).Length)  version=$ver`n" +
+  "disk-clean-setup-$ver.exe  sha256=$setupSha  size=$((Get-Item $setupExe).Length)  version=$ver`n", $enc)
 Write-Output "engine sha256 = $engineSha"
 Write-Output "setup  sha256 = $setupSha"
 
@@ -144,7 +151,8 @@ $assets = @(
   "$setupExe.sha256",
   $engineExe,
   "$engineExe.sha256",
-  "dist\SHA256SUMS.txt"
+  "dist\SHA256SUMS.txt",
+  "dist\checksums.txt"
 ) | Where-Object { Test-Path $_ }
 
 $r = RunNative $gh (@('release', 'upload', $tag) + $assets + @('--clobber'))
@@ -169,6 +177,24 @@ if ($remoteEngine.size -ne (Get-Item $engineExe).Length) {
 if ($remoteSetup.size -ne (Get-Item $setupExe).Length) {
   Fail "remote setup size $($remoteSetup.size) != local $((Get-Item $setupExe).Length)"
 }
+# checksums.txt must actually describe the artifacts that are on the release. A size check
+# is not enough here: the file is small and a stale copy has the right size but the wrong hash.
+$remoteChecksums = $release.assets | Where-Object { $_.name -eq 'checksums.txt' }
+if (-not $remoteChecksums) { Fail "checksums.txt is missing on the remote release" }
+$ckText = (Invoke-WebRequest $remoteChecksums.browser_download_url -Headers @{ 'User-Agent' = 'dsh' } -TimeoutSec 60 -UseBasicParsing).Content
+# PowerShell 5.1 hands back a Byte[] from -UseBasicParsing whenever the response has no
+# text-ish content type (this script runs under `powershell -File`, i.e. 5.1). Comparing
+# a Byte[] with -match always fails, which would make this check report a bogus mismatch
+# on a perfectly good release (verified against the real v0.5.0 asset). Decode explicitly.
+if ($ckText -is [byte[]]) { $ckText = [System.Text.Encoding]::UTF8.GetString($ckText) }
+$ckText = [string]$ckText
+if ($ckText -notmatch [regex]::Escape($engineSha)) {
+  Fail ("remote checksums.txt does not mention the published engine hash`n" +
+        "  expected: $engineSha`n" +
+        "  remote  : $($ckText.Trim())`n" +
+        "  Fix: re-run this script (step 3 rewrites dist\checksums.txt and step 4 re-uploads it).")
+}
+Write-Output "checksums.txt matches the published engine hash"
 Write-Output "assets verified ($($remoteNames.Count) items, sizes match)"
 
 # ---------- 5) Download back and verify hashes ----------
