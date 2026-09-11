@@ -244,7 +244,7 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm test          # 全量测试（9 个套件，含 MCP 协议 / 规则完整性 / 版本一致性）
+npm test          # 全量测试（10 个套件，含 MCP 协议 / 规则完整性 / 版本一致性）
 npm run mcp       # 本地起一个 MCP server
 powershell -File scripts\build.ps1   # 构建 exe + sha256
 ```

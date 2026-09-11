@@ -128,7 +128,7 @@
 
 ### 3.2 验证清单
 
-- [ ] 本地全量回归（`npm test`，9 个套件）
+- [ ] 本地全量回归（`npm test`，10 个套件）
 - [ ] 重打包 exe 后**重新跑全命令**（exe 与源码永远同步）
 - [ ] **exe 形态也要过 MCP 端到端**：`node scripts/mcp-e2e.js <测试树> --exe dist\disk-clean-win-x64.exe`
       —— 只测源码会漏掉"源码对、打包后坏"（SEA 把整个依赖树塞进 blob，`require` 行为可能不同）
@@ -296,11 +296,16 @@ disk-clean-setup-<ver>.exe.sha256
 disk-clean-win-x64.exe   （CLI/引擎 SEA，~82MB，同上后台上传）
 disk-clean-win-x64.exe.sha256
 SHA256SUMS.txt          （含引擎 + 安装器两项校验和）
-checksums.txt           （version=<版本> 行，构建产物）
+checksums.txt           （含两项 sha256/size/version 行，发布时由 publish-release.ps1 重算）
 ```
 
 - **发布前产物核对铁律**：`Get-FileHash` 与 Release 资产 digest 一致才算发布成功；
   `dist/` 被 .gitignore 忽略，SHA256SUMS 只作 Release 资产不入库，**每次构建后必须重算**。
+- **checksums.txt 必须由发布脚本重写并上传（G53）**：CI 在 tag 推送时会用**它自己的 SEA 产物**
+  创建 Release 并上传 checksums.txt，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——
+  若不重写这个文件，Release 上就会留下一个"哈希属于已不存在的构建"的 checksums.txt。
+  v0.5.0 实际发生过：release 资产写着 `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。
+  现已在第 3 步重算、第 4 步上传，并**回到 API 下载内容断言哈希一致**（只比 size 抓不到这个）。
 - 上传一律后台任务 + `--clobber` 覆盖；**上传期间不要重建源文件**（会破坏半传文件），
   需重传先 kill 上传 job 再重建再传。
 - Release 必须**非 draft**；CI workflow 手动验证（`gh workflow run` 在 CI 修复后重新触发，不删 tag 重推）。
@@ -437,3 +442,20 @@ checksums.txt           （version=<版本> 行，构建产物）
     发布前先跑 `scripts/publish-release.ps1` 的第 0 步预检，它会直接告诉你要补哪个权限。
 30. **token 泄露后必须轮换**：一旦 PAT 出现在对话记录、日志或提交里，立即到
     Settings → Developer settings → Fine-grained tokens 撤销重建（撤销即时生效，代价只是重配一次）。
+
+### 发布脚本的宿主差异（v0.5.0 实测增补）
+
+31. **`Invoke-WebRequest -UseBasicParsing` 的 `.Content` 在 PS 5.1 下是 `Byte[]`，不是 `String`（G54）**：
+    `scripts\*.ps1` 是以 `powershell -File`（**PowerShell 5.1**）运行的，而 pwsh7 会返回 String——
+    于是"在 pwsh 里手测通过"的字符串比较逻辑，进了脚本就 100% 判错。
+    本次给 `publish-release.ps1` 加"下载 checksums.txt 并断言哈希"时踩到：资产完全正确，
+    却报 `remote checksums.txt does not mention the published engine hash`。
+    正确写法（脚本内已有）：
+    ```powershell
+    $t = (Invoke-WebRequest $url -Headers @{ 'User-Agent' = 'dsh' } -TimeoutSec 60 -UseBasicParsing).Content
+    if ($t -is [byte[]]) { $t = [System.Text.Encoding]::UTF8.GetString($t) }
+    $t = [string]$t
+    ```
+    推论：**凡是要把响应体当文本比较/正则的地方，都必须显式解码**；
+    并且这类改动必须在 **PS 5.1 宿主**上跑一次（`powershell -File <临时脚本>`），不能只在 pwsh 里验。
+    （同族：铁律 26「本地成功 ≠ CI 成功」、第 14 条 PS 5.1 解析差异、第 15 条 Latin-1 请求体。）

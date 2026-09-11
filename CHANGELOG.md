@@ -1,6 +1,38 @@
 # Changelog
 
-## [0.5.0] - 2026-08-17
+> 说明：本文件在 v0.1.0 与 v0.4.0 之间**缺少 0.2.0 / 0.3.0 / 0.3.1 三个版本条目**
+> （只有 tag 与 GitHub Release，没有 CHANGELOG 段落）。这三个版本的实际发布时间见
+> GitHub Releases 与 `docs/RELEASE_NOTES-v0.2.0.md`；补写需基于当时的提交内容，
+> 不要凭印象编造。
+
+## [Unreleased]
+
+### Fixed
+- **发布产物会被写成"哈希属于已不存在的构建"**（G53）：CI 在 tag 推送时会用它自己的 SEA 产物
+  创建 Release 并上传 `checksums.txt`，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——
+  旧的 `checksums.txt` 因此留在了 Release 上。v0.5.0 实际发生过：资产写着
+  `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。现第 3 步重算该文件并纳入上传清单，
+  第 4 步**下载回来断言哈希**（只比 size 抓不到）。线上 v0.5.0 的资产已同步修正。
+- `publish-release.ps1` 新增的响应体断言会在 PS 5.1 下误报（G54）：
+  `Invoke-WebRequest -UseBasicParsing` 的 `.Content` 在 5.1 返回 `Byte[]` 而非 String，
+  与 `-match` 比较恒为失败。已显式按 UTF-8 解码，并在 PS 5.1 宿主上复验通过。
+
+### Docs
+- 修正全仓库过期的测试套件数（9 → **10**）：`README.md`、`README.zh-CN.md`、
+  `docs/RELEASE-PLAYBOOK.md` §3.2、`docs/RELEASE_NOTES-v0.5.0.md`、
+  `skills/release-sop/SKILL.md`（后者同时补上漏列的 `ci-workflow.js`）。
+- 修正 CHANGELOG 中三个错误日期（与 GitHub Release / tag 实际日期对账）：
+  0.5.0 `2026-08-17` → `2026-09-11`、0.4.1 → `2026-08-25`、0.4.0 → `2026-08-21`。
+- `docs/OPTIMIZATION-PLAN.md`：加"历史归档"横幅；把 v0.4.0/v0.4.1 的状态头由
+  "待执行/等确认后开工"改为已发布；标注 v0.4.1 中**涉及已删除 `plugin/` 形态的任务全部作废**；
+  勾选 v0.5.0 的发布验收项。
+- `docs/PROCESS-REVIEW.md`：修复重复的 `### 7.2` 标题（改为 7.2 / 7.3 / 7.4）；
+  补编号体系图例（1–27 与 G1–G54 两套并存、G1–G8 是决策不是缺陷、G50–G54 的去向）；
+  更新过期的文件头与第七节标题；把"版本四源 + 人工 grep"更正为"`lib/version.js` 单源 + 测试守门"。
+- `docs/GUI-PLAN.md`：状态头由"v0.4.1 迭代进行中"更新为已随 v0.5.0 发布。
+- `docs/RELEASE-PLAYBOOK.md`：§4.3 补 checksums.txt 的 G53 铁律；§6 补第 31 条（G54）。
+
+## [0.5.0] - 2026-09-11
 
 ### Changed
 - **AI 接入形态从 DSH 专有插件改为 MCP**（**破坏性变更**）：删除 `plugin/`（约 3400 行 DSH 专属代码、
@@ -76,7 +108,7 @@
 - `skills/release-sop`、`skills/gui-development`：提升为全局技能（`~/.agents/skills/`），
   内容与 MCP 形态对齐。
 
-## [0.4.1] - 2026-08-17
+## [0.4.1] - 2026-08-25
 
 ### Added
 - **OneDrive 云端安全**：含 `\OneDrive\` 段的路径计入统计，但排除哈希/查重与破坏性清理建议；
@@ -86,7 +118,7 @@
 - **回收站恢复（仅本工具项）**：`/api/recycle/list` 与 `/api/recycle/restore` + GUI 入口。
 - **引擎核心单源**：`lib/engine-core.js` 为唯一可编辑核心，`lib/engine.js` 为薄壳。
 
-## [0.4.0] - 2026-08-17
+## [0.4.0] - 2026-08-21
 
 ### Added
 - **MFT 直读快速扫描**（`mftscan <drive>`，需管理员）：解析碎片化 $MFT runlist、路径重建、alloc/real 合理性 size 规则；实测 ~8x 提速（D 盘 5.5s vs 43.1s），文件数/目录数与常规遍历一致（99%/100%）。

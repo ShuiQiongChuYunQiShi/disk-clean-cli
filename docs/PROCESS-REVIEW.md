@@ -1,6 +1,15 @@
 # disk-clean 制作与发布全流程复盘
 
-> 记录时间：2026-08-16 · 项目：disk-clean v0.2.0（Windows 磁盘清理与分析 CLI，MIT 开源）
+> 记录时间：2026-08-16（第七节 GUI 部分随 v0.3.0 / v0.3.1 追加）
+> 覆盖范围：**v0.1.0 → v0.3.1 的制作与发布过程**（正文主体成文于 v0.2.0 阶段）。
+> 项目：disk-clean（Windows 磁盘清理与分析 CLI + MCP server，MIT 开源）。
+>
+> **编号体系说明（两套编号并存，互不映射，读时勿混用）：**
+> - 第四节的 **1–27**：按主题分组的早期错误清单（打包/编码/MFT/发布/流程）。
+> - 第七节的 **G1–G54**：GUI 阶段的编号序列。**G1–G8 是"好的决策"，不是错误**；
+>   G9–G54 才是缺陷。尚未收录进本文件的最新条目（G50–G54）见
+>   `docs/RELEASE-PLAYBOOK.md`：G50 见 §5 第 18 条，G51 见 §6「路径归一化与发布脚本」第 27 条，
+>   G52 见同节第 26 条，G53 见 §4.3「Release 资产」，G54 见 §6「发布脚本的宿主差异」。
 
 ---
 
@@ -139,7 +148,7 @@
 
 ---
 
-## 七、GUI 桌面端复盘（v0.3.0，2026-08-16）
+## 七、GUI 桌面端复盘（v0.3.0 → v0.3.1，2026-08-16）
 
 > 第三形态：WebView2 原生窗口（C# 壳 + 引擎 serve 层 + 零依赖前端 + Inno Setup 安装器）。
 > 完整 SOP 见 `docs/RELEASE-PLAYBOOK.md §3.5`；本节约不复述流程，只记**经验/教训/防复发**。
@@ -187,7 +196,7 @@
 | G32 | E2E 后遗留进程/目录 | 测试进程未收尾 | Start-Process 记录 PID → 结束 → 删测试目录 |
 | G33 | `Copy-Item -Recurse -Force` 到已存在目录变成**嵌套复制** | Copy-Item 目录语义：目标已存在时并入子目录 | 文件级复制（`Copy-Item src\SKILL.md dst\SKILL.md -Force`）；或先删目标目录再复制 |
 
-### 7.2 v0.3.1 修复迭代复盘（用户反馈回归 → 全量验证）
+### 7.3 v0.3.1 修复迭代复盘（用户反馈回归 → 全量验证）
 
 用户报告：「首页容量 24kb 对不上 / 默认全选 / 选中 D 却扫出 2.2TB（D 才 700GB）/ 无图标」。
 修复思路：不猜 → 读 `~/.disk-clean/report.json` 实锤 → 修 serve 层 → 前端改交互 → 图标管线 → 开发态真机四层回归。
@@ -217,11 +226,13 @@
 - 破坏性操作（clean/organize/dedup）全部走 dryRun 预览 + 双确认，回归只做预览，不动真数据。
 - 取消/未知任务/已完成任务三态 API 契约全部验证（done 任务返回 note、未知 404）。
 
-### 7.3 防复发要点（GUI 专项）
+### 7.4 防复发要点（GUI 专项）
 
 1. **服务层第一坑**：CLI 位置参数 vs flag —— spawn 前确认参数语义（`serve` 不是 `--serve`）。
-2. **版本四源**：`bin/VER`、`lib/serve.js VER`、`DiskCleanUi.csproj Version`、`package.json version`
-   ——发布前 grep 核对，`checksums.txt version=` 来源于 package.json。
+2. **版本单一事实源**：版本号只写在 `lib/version.js`，其余 8 个位置派生（`package.json`、
+   `package-lock.json` ×2、`DiskCleanUi.csproj`、`disk-clean-ui.iss`、`gui/web/index.html`、
+   `bin/disk-clean.js` 与 `lib/serve.js` 改为引用）——**不再靠人工 grep**，
+   由 `test/version-consistency.js` 守门。（原文"版本四源 + 发布前 grep 核对"已被 v0.5.0 取代。）
 3. **构建顺序**：改 serve.js → 必重建 SEA → 再组装安装器；上传期间不重建源文件。
 4. **C#**：Nullable disable 无 `?`、GetArg 空串、ProcessStartInfo 用 Arguments、改后立即 build。
 5. **Inno Setup**：函数先声明、DownloadTemporaryFile 4 参裸名、FindFirst 用 TFindRec、检测用文件夹。
@@ -230,4 +241,7 @@
 8. **范围型操作铁律**：扫描/去重/整理任何"作用域"都必须有范围确认与回显；服务端缺省范围只能取最近报告 `summary.roots`，**绝不静默回退全盘**。
 9. **PS 5.1 脚本**：所有构造调用单行 + 脚本全 ASCII 注释（BOM-less UTF-8 中文会被 ANSI 错读）；PowerShell 调 API 发 JSON 必须 `UTF8.GetBytes` 字节体。
 10. **图标管线**：`scripts/make-icon.ps1` 是构建链 step 0；三处接入 = csproj `ApplicationIcon` + iss `SetupIconFile` + web `favicon.svg`（serve 静态白名单已含 .ico/.svg）。
-11. **`dist/SHA256SUMS.txt` 是发布时组装的**：build-sea 只写 `dist/checksums.txt` 与 `exe.sha256`；release 前用新引擎 sha + setup sha/size 重算并双向核对。
+11. **`dist/SHA256SUMS.txt` 与 `dist/checksums.txt` 都在发布时重算**：build-sea 产出的校验和只对应
+    本地构建，而 CI 在 tag 推送时会用**它自己的** SEA 产物创建 Release（G53：v0.5.0 曾因此带着
+    `sha256=72ce9f21…` 的 checksums.txt 发布，而实际 exe 是 `3cbdc188…`）。`publish-release.ps1`
+    第 3 步重建这两个文件、第 4 步上传并**回到 API 复核内容**，不再只比体积。

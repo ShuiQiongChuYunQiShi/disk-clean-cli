@@ -1,8 +1,9 @@
 # disk-clean GUI v1.0 — 实施计划（WebView2 原生窗口）
 
-> 状态：✅ v0.4.0 已发布（安装器 27.1MB/引擎 86MB），v0.4.1 迭代进行中（见 docs/OPTIMIZATION-PLAN.md v0.4.1 章节：OneDrive 提示/安全加固/健康趋势/回收站恢复等）。
-> 里程碑：v0.4.0 安装器 `disk-clean-setup-0.4.0.exe` 已可构建；下一里程碑 v0.4.1（含引擎核心单源、npm 分发、回收站恢复）。
-> 本文档是执行的唯一依据，计划变更需回写此处。
+> 状态：✅ GUI 已随 **v0.5.0（2026-09-11）** 发布（安装器 `disk-clean-setup-0.5.0.exe`，~25.9MB；引擎 `disk-clean-win-x64.exe`，~82MB）。
+> 历史：v0.3.0 首版 → v0.3.1 用户回归修复 → v0.3.2 报告 Tab → v0.4.0 MFT/去重/配额/健康/计划任务 → v0.4.1 OneDrive 安全 + 健康趋势 + 回收站恢复 + npm 分发线 → v0.5.0 AI 接入改为 MCP（`plugin/` 形态删除）。
+> 演进全过程见 `docs/OPTIMIZATION-PLAN.md`（历史归档）；当前待办见 `ROADMAP.md`。
+> 本文档是 GUI 执行的唯一依据，计划变更需回写此处。
 
 ## 目标
 

@@ -246,7 +246,7 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm test          # full suite (9 suites, incl. MCP protocol + rules integrity + version consistency)
+npm test          # full suite (10 suites, incl. MCP protocol + rules integrity + version consistency)
 npm run mcp       # start an MCP server locally
 powershell -File scripts\build.ps1   # build exe + sha256
 ```
