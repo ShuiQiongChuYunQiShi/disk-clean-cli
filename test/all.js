@@ -9,6 +9,7 @@ const suites = [
   'engine-edge.js',
   'clean-safety.js',
   'organize-safety.js',
+  'safety-gates.js',
   'serve-integration.js',
   'mcp-protocol.js',
   'dsh-config.js',

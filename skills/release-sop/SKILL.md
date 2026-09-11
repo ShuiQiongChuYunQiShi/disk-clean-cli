@@ -94,8 +94,8 @@ npm 包：`disk-clean`（两个 bin：`disk-clean` 与 `disk-clean-mcp`）。
 
 - [ ] git status 干净，ls-remote 与本地一致
 - [ ] `node --check` 全过（`npm run check` 覆盖 bin/lib/gui-web 全部模块）
-- [ ] 全量测试 10/10：`npm test`（engine-smoke / engine-edge / clean-safety / organize-safety /
-      serve-integration / **mcp-protocol** / **dsh-config** / **rules-integrity** / **version-consistency** / **ci-workflow**）
+- [ ] 全量测试 11/11：`npm test`（engine-smoke / engine-edge / clean-safety / organize-safety /
+      **safety-gates** / serve-integration / **mcp-protocol** / **dsh-config** / **rules-integrity** / **version-consistency** / **ci-workflow**）
 - [ ] Release 非 draft、哈希一致（GUI setup + 引擎两处）、CI 绿
 - [ ] README Option A/B/C/D 链接有效（勿用 `../README.md` 仓库外链接）
 - [ ] 版本一致性由 `test/version-consistency.js` 自动守住（7 个版本源），无需人工 grep

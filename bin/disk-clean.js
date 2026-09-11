@@ -20,6 +20,7 @@ const dedupLib = require('../lib/dedup.js');
 const quotaLib = require('../lib/quota.js');
 const restoreLib = require('../lib/restore.js');
 const i18nLib = require('../lib/i18n.js');
+const guard = require('../lib/guard.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -295,7 +296,8 @@ async function cmdClean(o) {
   } else {
     // 从建议自动提取候选（仅限有具体路径的类型；系统目录候选保守跳过而非报错）
     const sugg = rep.suggestions || [];
-    const safeOnly = function(list) { return (list || []).filter(function(p) { return !/\\windows\\|\\program files\\|\\program files \(x86\)\\|\\programdata\\|\\winsxs\\|\\system volume information\\|\\\$recycle\.bin\\/i.test(String(p).toLowerCase()) }) };
+    // 评审 A3：此前这里自留一份 7 段正则；现统一走 guard（16 段 + 尾部匹配 + OneDrive）
+    const safeOnly = function(list) { return (list || []).filter(function(p) { return guard.isProtectedPath(String(p).toLowerCase()) === false }) };
     if (type === 'duplicates') {
       for (const s of sugg) if (s.type === 'duplicates') for (const g of (s.groups || [])) paths = paths.concat(safeOnly(g.removable || []));
     } else if (type === 'empty-dirs') {
@@ -368,26 +370,36 @@ async function cmdDedup(o) {
     console.log(col(C.yellow, '⚠ 硬链接合并：将每组保留 1 个，其余转为硬链接（同卷内）。'));
     if (dryRun) {
       console.log(col(C.blue, '  --dry-run 预览：'));
-      let plan = 0;
+      let plan = 0, refusedN = 0;
       for (const g of r.groups) {
         const rr = dedupLib.hardlinkGroup(g, true);
-        for (const x of rr) { if (x.action === 'hardlink(预览)') plan++; }
+        for (const x of rr) {
+          if (x.action === 'hardlink(预览)') plan++;
+          else if (x.action === 'refused') refusedN++;
+        }
       }
       console.log('  将合并 ' + plan + ' 个文件为硬链接，释放约 ' + fmtBytes(r.totalSaveBytes) + '。加 --yes 执行。');
+      if (refusedN > 0) {
+        console.log(col(C.yellow, '  ⚠ 拒绝合并 ' + refusedN + ' 个：仅经 head+tail 抽样比对的近似组（approx）不允许建硬链接，'));
+        console.log(col(C.yellow, '    因为内容可能不同、合并后不可逆。请改用 clean duplicates（移入回收站，可恢复）。'));
+      }
       return 0;
     }
-    let ok = 0, failN = 0;
+    let ok = 0, failN = 0, refusedN = 0;
     const merged = [];
     for (const g of r.groups) {
       const rr = dedupLib.hardlinkGroup(g, false);
       for (const x of rr) {
         if (x.action === 'hardlink') { ok++; merged.push(x.to); }
+        else if (x.action === 'refused') { refusedN++; if (refusedN <= 5) console.log(col(C.yellow, '  ⊘ ' + x.to + ': ' + (x.error || ''))); }
         else if (x.action === 'fail') { failN++; console.log(col(C.yellow, '  ✗ ' + x.to + ': ' + (x.error || ''))); }
       }
     }
-    console.log(col(C.green, '✔ 硬链接合并完成: 成功 ' + ok + '，失败 ' + failN + '，释放约 ' + fmtBytes(r.totalSaveBytes)));
+    console.log(col(C.green, '✔ 硬链接合并完成: 成功 ' + ok + '，失败 ' + failN + '，因近似组拒绝 ' + refusedN + '，释放约 ' + fmtBytes(r.totalSaveBytes)));
+    if (refusedN > 5) console.log(col(C.gray, '  （以上仅显示前 5 条拒绝明细，共 ' + refusedN + ' 条）'));
     if (ok > 0) {
-      fs.writeFileSync(path.join(os.homedir(), '.disk-clean', 'dedup-map.json'), JSON.stringify({ at: new Date().toISOString(), merged: merged }, null, 2), 'utf8');
+      // 统一 map schema（评审 A6）：一律写 entries，旧 merged 仅兼容读
+      dedupLib.appendDedupEntries(merged.map(function (p) { return { victim: p, keep: null, size: 0, at: new Date().toISOString() }; }));
       console.log(col(C.gray, '  回滚: disk-clean dedup --rollback-hardlinks'));
     }
   }
@@ -395,20 +407,25 @@ async function cmdDedup(o) {
 }
 
 async function cmdDedupRollback() {
-  const mapFile = path.join(os.homedir(), '.disk-clean', 'dedup-map.json');
-  let map;
-  try {
-    let raw = fs.readFileSync(mapFile, 'utf8');
-    if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
-    map = JSON.parse(raw);
-  } catch (e) { return fail('没有可回滚的硬链接记录 (' + mapFile + ')'); }
-  const merged = (map.merged || []).filter(function(p) { return fs.existsSync(p); });
-  if (merged.length === 0) { console.log('（没有需要还原的硬链接文件）'); return 0; }
-  const rr = dedupLib.rollbackHardlinks(merged);
-  let ok = 0;
-  for (const x of rr) { if (x.action === 'restored') ok++; }
-  fs.unlinkSync(mapFile);
-  console.log(col(C.green, '✔ 已还原 ' + ok + ' 个文件为独立副本，回滚完成。'));
+  // 统一读单一 map（评审 A6）：旧实现只读 map.merged，而 MCP 侧写的是 entries，
+  // 于是"AI 合并的文件，CLI 回滚不了"（merged 为空 → 报"没有可回滚记录"）。
+  const map = dedupLib.readDedupMap();
+  const entries = map.entries.filter(function(e) { return e && e.victim && fs.existsSync(e.victim); });
+  if (entries.length === 0) {
+    if (map.entries.length === 0) return fail('没有可回滚的硬链接记录 (' + audit.dedupMapFile() + ')');
+    console.log('（记录的硬链接文件都已不存在，无需还原）');
+    return 0;
+  }
+  const rr = dedupLib.rollbackHardlinks(entries);
+  let ok = 0, bad = 0;
+  for (const x of rr) { if (x.action === 'restored') ok++; else bad++; }
+  // 只删除已成功的记录，失败项保留以便重试（append-only 语义）
+  const failedPaths = {};
+  for (const x of rr) if (x.action !== 'restored') failedPaths[String(x.path).toLowerCase()] = true;
+  const remain = map.entries.filter(function(e) { return failedPaths[String(e.victim).toLowerCase()]; });
+  if (remain.length) dedupLib.writeDedupMap(remain);
+  else { try { fs.unlinkSync(audit.dedupMapFile()); } catch (e) { /* ignore */ } }
+  console.log(col(C.green, '✔ 已还原 ' + ok + ' 个文件为独立副本，回滚完成。') + (bad ? col(C.yellow, '（' + bad + ' 个失败，已保留记录供重试）') : ''));
   return 0;
 }
 

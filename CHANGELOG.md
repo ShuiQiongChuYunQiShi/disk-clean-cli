@@ -32,6 +32,45 @@
 - `docs/GUI-PLAN.md`：状态头由"v0.4.1 迭代进行中"更新为已随 v0.5.0 发布。
 - `docs/RELEASE-PLAYBOOK.md`：§4.3 补 checksums.txt 的 G53 铁律；§6 补第 31 条（G54）。
 
+## [Unreleased]
+
+### Security
+- **硬链接合并不再接受"仅头尾抽样"的近似重复组**（P0，评审 A1）：`dedup.js` 对 >32MB 的文件
+  只比对 head 64KB + tail 64KB 就标 `approx:true`，而 CLI、MCP、GUI **三条路径都不过滤该标志**
+  就直接合并为硬链接。实测复现：两个 33MB 文件（头尾相同、中间不同）被判为重复，合并后中段字节
+  由 `17/34` 变为 `17/17` —— 第二个文件内容永久消失，且 `.dsk-dup-bak` 备份在成功后即删除，**不可逆**。
+  现于唯一收口 `hardlinkGroup()` 内硬性拒绝 approx 组（fail-closed），三个调用方无需各自过滤；
+  MCP 侧显式分流并给出"改用 `disk_clean duplicates`（移入回收站，可恢复）"的可行动提示。
+- **硬链接合并/serve/CLI 的路径写入现在都过统一安全闸门**（评审 A2）：`hardlinkGroup()` 此前全程
+  不调 `guard`；同时 `dedup.scan()` 对扫描根传 `segs=[]`、不校验根自身，于是
+  `roots=['C:\\Windows\\System32\\drivers']` 会放行并开始哈希系统文件。现根自身先过
+  `guard.isProtectedPath`（命中记入 `skippedRoots`，不静默），每个 keep/victim 也逐一过闸门。
+- **保护名单收敛为真正单源**（评审 A3）：`README` 宣称已收敛到 `lib/guard.js`，实际
+  `engine-core.js`（`DANGER`）、`organize.js`（`SYS_PREFIX`）、`bin/disk-clean.js`（正则）、
+  `serve.js`（`SYS_RE`）各自还留一份 **7 段**副本，缺 `windows.old` / `boot` / `efi` / `recovery` /
+  `perflogs` / `msocache` / `config.msi` / `$windows.~bt` / `$windows.~ws` 共 **9 段**；
+  且 organize 副本无 guard 的尾部匹配，导致同一个 `C:\Users\me\windows` 在清理侧被拒、在整理侧放行。
+  现四处全部改为 `require('./guard.js')`，源码内保护名单只剩一处定义。
+- **整理目标不再允许路径穿越**（评审 A4）：`organize.js` 此前只做 `^[a-z]:\\整理区\\` 前缀正则，
+  `C:\整理区\..\boot\x` 可通过并被 OS 解析为 `C:\boot\x`（管理员会话下真的会移进受保护目录）。
+  新增 `guard.checkOrganizeDest()`：归一化 + 显式拒绝 `.`/`..` 段 + 断言归一化后仍位于 `<盘>:\整理区\<分类>`。
+  `engine-core.js` 的第二道拦截也改用 `guard.isProtectedPath`（补尾部匹配与 16 段）。
+- **`organize` 不再自写带边界 bug 的扫描根匹配**（评审 A5）：`lp.indexOf(root) === 0` 会让
+  `C:\UsersOther` 命中 `C:\Users`；现统一走 `guard.inRoots`。
+
+### Fixed
+- **`dedup-map.json` 收敛为单一 schema**（评审 A6）：MCP 写 `{entries:[{victim,keep,size,at}]}`，
+  而 CLI 与 GUI 写 `{merged:[path]}`，读取端各读各的 —— 结果是"AI 合并的文件，GUI/CLI 回滚不了"
+  （读到空的 `merged` 后报"没有可回滚记录"）。现读写只在 `lib/dedup.js` 一处（`readDedupMap` /
+  `writeDedupMap` / `appendDedupEntries`），一律写 `entries`、兼容读旧 `merged`；
+  回滚改为 append-only（失败项保留记录供重试），不再整文件删除映射。
+
+### Added
+- `test/safety-gates.js`（接入 `test/all.js`，套件 10 → **11**）：专门覆盖上述 A1–A6。
+  其中 A1 用**真实 >32MB 文件对**做端到端可达性证明 —— 先断言扫描确实判为 `approx`，
+  再断言合并被拒绝且两文件内容未变，而非只喂合成对象。该套件在编写过程中即抓到
+  修复自身的一次过度收紧（用遍历用 `isSkip` 判扫描根会连带跳过 `%TEMP%`）。
+
 ## [0.5.0] - 2026-09-11
 
 ### Changed

@@ -128,7 +128,7 @@
 
 ### 3.2 验证清单
 
-- [ ] 本地全量回归（`npm test`，10 个套件）
+- [ ] 本地全量回归（`npm test`，11 个套件）
 - [ ] 重打包 exe 后**重新跑全命令**（exe 与源码永远同步）
 - [ ] **exe 形态也要过 MCP 端到端**：`node scripts/mcp-e2e.js <测试树> --exe dist\disk-clean-win-x64.exe`
       —— 只测源码会漏掉"源码对、打包后坏"（SEA 把整个依赖树塞进 blob，`require` 行为可能不同）
@@ -287,6 +287,33 @@ scripts/build-installer.ps1
 
 - 英文 commit message，单 commit 一个主题；文档与代码同步提交。
 - 发布前：本地全量回归 → 版本 bump → commit → tag → Release 说明 → SHA256，**GitHub 只做搬运**。
+
+### 安全教训（第三方锐评 A1–A5，v0.5.0 后实测增补）
+
+32. **"抽样判重"绝不能驱动破坏性操作（A1，P0）**：`dedup.js` 对 >32MB 的文件只比对
+    head 64KB + tail 64KB 就标 `approx:true`。而 CLI / MCP / GUI **三条路径都不过滤 approx**
+    就直接硬链接合并 —— 实测复现：两个 33MB 重名文件（头尾相同、中间不同）被判为重复，
+    合并后中段字节从 `17/34` 变成 `17/17`，即**第二个文件的内容永久消失**，
+    且 `.dsk-dup-bak` 备份在成功后即删除 → 不可逆。
+    修法：在唯一收口 `hardlinkGroup` 内硬性拒绝 approx 组（fail-closed），三个调用方无需各自过滤。
+    **推论：凡"抽样/启发式判定"驱动"不可逆动作"的组合，都必须在动作的唯一入口再断言一次。**
+
+33. **安全闸门"单源"必须用 grep 证明（A3）**：README 宣称保护名单已收敛到 `lib/guard.js`，
+    实际 `engine-core.js` / `organize.js` / `bin/disk-clean.js` / `serve.js` 还各留一份
+    7 段副本（缺 `windows.old/boot/efi/recovery/perflogs/msocache/config.msi/$windows.~bt/~ws`
+    共 9 段），且 organize 副本无尾部匹配 —— 同一个 `C:\Users\me\windows` 在清理侧被拒、
+    在整理侧放行。**"单源"是可用一条 grep 证伪的声明，发布前跑一次。**
+
+34. **前缀匹配与路径穿越必须一起审（A4/A5）**：`organize.js` 的目标校验只做
+    `^[a-z]:\\整理区\\` 前缀正则，`C:\整理区\..\boot\x` 通过后被 OS 解析成 `C:\boot\x`；
+    同文件的 `inScanRoots` 又是 `lp.indexOf(root) === 0`（`C:\Users` 命中 `C:\UsersOther`）。
+    修法：`path.resolve` 归一化 + 显式拒绝 `.`/`..` 段 + 断言归一化后父目录就是 `<盘>:\整理区`。
+    **同文件里"早就修好的那个 bug"常常在隔壁函数里原样活着。**
+
+35. **测试没覆盖的边界等于没有边界**：A1 自 v0.4.0 起就在仓库里，
+    10 个套件全绿——因为**没有任何用例碰过硬链接的安全边界**。
+    新增 `test/safety-gates.js` 专门守 A1–A6，其中 A1 用真实 >32MB 文件对做端到端可达性证明
+    （先断言扫描确实判为 approx，再断言合并被拒绝），而非只喂合成对象。
 
 ### 4.3 Release 资产
 
