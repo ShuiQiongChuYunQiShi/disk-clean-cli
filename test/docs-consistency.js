@@ -303,6 +303,22 @@ for (const u of UNIMPLEMENTED) {
   assert(u.reason && u.reason.trim().length > 0, 'UNIMPLEMENTED 的 ' + u.path + ' 必须写明原因');
 }
 
+// 按「要么实现、要么从描述里删掉」处理掉的配置字段，不得在**面向用户的文档**里卷土重来。
+// blacklist 在 v0.7.0 删除，junkRules / organizeRules 在 v0.7.1 删除（T4）——
+// 它们都曾被当成已有能力承诺过，所以这里不看是否带否定词，一律禁止出现。
+// （config.js 的注释允许提及，那是"为什么删"的留档，由 cli-and-config 的断言守着。）
+const REMOVED_CONFIG_KEYS = ['blacklist', 'junkRules', 'organizeRules'];
+for (const key of REMOVED_CONFIG_KEYS) {
+  for (const pair of [['README.md', README], ['README.zh-CN.md', README_ZH]]) {
+    assert(pair[1].indexOf(key) < 0,
+      pair[0] + ' 提到了已删除的配置字段 "' + key + '"——被删掉的能力不该再出现在文档里');
+  }
+  for (const t of mcpToolDescs) {
+    assert(String(t.description || '').indexOf(key) < 0,
+      'MCP 工具 ' + t.name + ' 的描述提到了已删除的配置字段 "' + key + '"');
+  }
+}
+
 // 登记为未实现的配置项，不得被当成已有能力对外承诺。
 //
 // 判据按"披露位置"分化，因为两类文本的读者与误报风险不同：

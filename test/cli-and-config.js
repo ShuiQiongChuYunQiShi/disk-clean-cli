@@ -47,6 +47,21 @@ function runCli(args, home) {
     assert(/blacklist[\s\S]{0,120}从未被任何引擎代码读取/.test(cfgSrc), 'v7-5 应保留"为何删除"的说明注释');
     n++;
 
+    // ============ T4：同类问题按**类别**清查，不逐项修 ============
+    // v0.7.0 只处理了 blacklist，同一批里的 junkRules / organizeRules 漏了网，
+    // 而且在同一版又被 MCP 工具描述承诺了一遍。这次一次清掉，
+    // 并断言"被删掉的能力不得卷土重来"——包括描述里不得再提、删除理由必须留档。
+    for (const key of ['junkRules', 'organizeRules']) {
+      assert(!(key in def), 'T4 DEFAULT_CONFIG 不应再有 ' + key + ' 字段');
+      assert(!new RegExp(key).test(toolsSrc), 'T4 MCP 工具描述不应再提及 ' + key);
+      assert(new RegExp(key + '[\\s\\S]{0,400}要么实现').test(cfgSrc),
+        'T4 config.js 应保留 ' + key + ' 的删除说明（否则后人会以为漏删又加回去）');
+    }
+    // 报告历史在 v0.7.1 真正接线了，所以未接线名单里不应再留着它
+    assert(!config.UNIMPLEMENTED.some(function (u) { return u.path === 'retention.reports'; }),
+      'T4 retention.reports 已实现，不应再登记为未接线');
+    n++;
+
     // ============ v7-6：retention.auditLines 必须真正生效 ============
     const audit = require('../lib/audit.js');
     assert(typeof audit.maxAuditLines === 'function', 'v7-6 应导出 maxAuditLines 以便验证');
@@ -151,7 +166,8 @@ function runCli(args, home) {
 
     console.log('cli-and-config OK (' + n + ' 组断言：v7-5 blacklist 已删 / v7-6 auditLines 生效 / ' +
       'v7-9 drives 单源+命令 / v7-4 clean stale-large / v7-3 rollback 要求 --yes / ' +
-      'v7-2 fs.linkSync / v7-7 双份副本上报)');
+      'v7-2 fs.linkSync / v7-7 双份副本上报 / ' +
+      'T4 junkRules+organizeRules 已删且不得卷土重来)');
   } finally {
     process.env.USERPROFILE = prevHome;
     try { fs.rmSync(home, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { }
