@@ -217,6 +217,7 @@ disk-clean mcp
 | `drives` | List local drives with real volume capacity (total / used / free / usage). Same source as the `disk_drives` MCP tool and the GUI drive cards. |
 | `health` | SMART / SSD health: temperature, wear %, power-on hours, read/write errors with a health grade. |
 | `mcp` | Start the **MCP server** (stdio, 12 tools) for DeepSeek Harness / Claude Desktop / Cursor and any other MCP client. stdout carries protocol messages only; diagnostics go to stderr. |
+| `doctor` | Environment self-check and first-run guidance: Node version, writable state dir, admin rights, whether the latest report is stale, recycle-bin access - each with the command to run next. Run this first. |
 | `build-info` | Print this build's identity as JSON (`version` / `commit` / `dirty` / `builtAt`). Use it to prove a downloaded exe is the published build: the published `checksums.txt` carries the same commit. |
 | `--restore-point` | Add to `clean` / `organize apply` to create a system restore point first (fails gracefully if protection is off). |
 | `--lang en\|zh` | Report language for `scan` (auto-detected; defaults to system language). |

@@ -48,6 +48,7 @@
 | 快捷方式修复 | `fix-shortcuts` | — | — |
 | 系统还原点 | `clean`（--restore-point） | — | — |
 | 构建自述（版本/commit/脏树） | `build-info` | — | — |
+| 环境自检与首次引导 | `doctor` | — | — |
 | MCP 服务本身 | `mcp` | — | — |
 | GUI 引擎 HTTP 服务 | `serve` | — | 由 C# 壳启动 |
 

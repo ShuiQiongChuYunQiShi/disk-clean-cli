@@ -316,7 +316,7 @@ CLI 用 `s.label || s.type` 回落，于是显示裸类型。
   —— ✅ **已完成**：真实样本上「其他」从 **76.6% 降到 11.8%**（报告新增 `uncategorizedTop`
   与"未分类占用 Top"段落；基线固化在 `test/category-coverage.js`，删规则会让测试失败）
 - T7 能力矩阵文档 + 一致性测试 —— ✅ **已完成**：`docs/CAPABILITY-MATRIX.md`（23 条能力 × 三面）+ `test/capability-matrix.js` 双向守门；另登记了 4 处待补的不一致
-- T8 错误消息与 `doctor` 自检（E1–E5）
+- T8 错误消息与 `doctor` 自检（E1–E5）—— ✅ **已完成**：`lib/suggest.js`（前缀/分词/编辑距离三判据）+ 产品级 `disk-clean doctor`；CLI 的 `fail()` 补上 hint 支持（MCP 侧一直有，CLI 侧此前静默丢弃第二个参数）
 
 ### P3 —— 易用性打磨（原标 v1.0）
 

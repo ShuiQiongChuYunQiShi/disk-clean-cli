@@ -62,10 +62,60 @@ function runCli(args, home) {
       'T4 retention.reports 已实现，不应再登记为未接线');
     n++;
 
-    // ============ 凭据入口：环境变量优先、文件回退、永不回显 ============
+    // ============ T8：错误消息与引导（E1–E5）============
+    // 这一组守的是"用户敲错了会得到什么"。此前的行为是 `未知清理类型: undefined`
+    // 和一句干巴巴的"未知清理类型: junk"——既不说明问题，也不给下一步。
+    {
+      // runCli 用 execFileSync，非 0 退出会抛异常，这里需要拿到输出与退出码
+      const runFail = (args) => {
+        try { return { code: 0, out: runCli(args, home) }; }
+        catch (e) {
+          return { code: e.status === null ? -1 : e.status, out: String(e.stdout || '') + String(e.stderr || '') };
+        }
+      };
+
+      // E1：缺类型要说明"缺什么 + 可选值 + 示例"，而不是 undefined
+      const e1 = runFail(['clean']);
+      assert(e1.code === 1, 'E1 clean 缺类型应退出 1，实际 ' + e1.code);
+      assert(e1.out.indexOf('缺少清理类型') >= 0, 'E1 应明确说"缺少清理类型"，实际：\n' + e1.out);
+      assert(e1.out.indexOf('junk-temp') >= 0 && e1.out.indexOf('示例') >= 0,
+        'E1 应列出可选类型并给示例，实际：\n' + e1.out);
+      assert(e1.out.indexOf('undefined') < 0, 'E1 不得再出现 undefined');
+
+      // E2：拼错给"最接近的匹配"（前缀与编辑距离两种都要覆盖）
+      const e2a = runFail(['clean', 'junk']);
+      assert(/是否想用 junk-temp/.test(e2a.out), 'E2 `junk` 应建议 junk-temp（前缀匹配），实际：\n' + e2a.out);
+      const e2b = runFail(['clean', 'emty-dirs']);
+      assert(/是否想用 empty-dirs/.test(e2b.out), 'E2 `emty-dirs` 应建议 empty-dirs（编辑距离），实际：\n' + e2b.out);
+      // 完全不沾边的输入**不该**乱猜一个
+      const e2c = runFail(['clean', 'zzzzzzzz']);
+      assert(e2c.out.indexOf('是否想用') < 0, 'E2 无关输入不应乱给建议，实际：\n' + e2c.out);
+
+      // E3：命令拼错给建议
+      const e3 = runFail(['scna']);
+      assert(/是否想用 scan/.test(e3.out), 'E3 `scna` 应建议 scan，实际：\n' + e3.out);
+
+      // E4：doctor 自检 + 首次引导
+      const e4 = runCli(['doctor'], home);
+      assert(e4.indexOf('环境自检') >= 0, 'E4 doctor 应有标题，实际：\n' + e4);
+      assert(e4.indexOf('状态目录可写') >= 0, 'E4 应检查状态目录', );
+      assert(e4.indexOf('管理员权限') >= 0, 'E4 应检查管理员权限（并说明哪些命令才需要）');
+      assert(e4.indexOf('建议的下一步') >= 0, 'E4 收尾必须给出"下一步做什么"，实际：\n' + e4);
+
+      // E5：report 头部要有生成时间、范围与版本
+      const e5report = path.join(tree, 'e5.json');
+      runCli(['scan', tree, '--report', e5report, '--lang', 'zh'], home);
+      const e5 = runCli(['report', e5report], home);
+      assert(/生成时间/.test(e5), 'E5 report 应显示生成时间，实际：\n' + e5);
+      assert(/版本 v\d/.test(e5), 'E5 report 头部应显示版本（如 版本 v0.7.1），实际：\n' + e5);
+      assert(/根目录/.test(e5), 'E5 report 应显示扫描范围');
+    }
+    n++;
+
     // 起因（实测）：Windows 用户级环境变量只在进程启动时快照，设好之后已经在运行的
     // 会话（及其 spawn 的子进程）读不到，于是反复出现"我明明设过了，脚本还说没设"。
     // 凭据文件就是为了消掉这个问题，所以它的解析规则必须有测试守着。
+    // ============ 凭据入口：环境变量优先、文件回退、永不回显 ============
     {
       const cred = require('../scripts/credentials.js');
       const credFile = cred.credentialsFile();
@@ -252,6 +302,7 @@ function runCli(args, home) {
       'v7-9 drives 单源+命令 / v7-4 clean stale-large / v7-3 rollback 要求 --yes / ' +
       'v7-2 fs.linkSync / v7-7 双份副本上报 / ' +
       'T4 junkRules+organizeRules 已删且不得卷土重来 / T5 建议显示 title 而非 [type] type / ' +
+      'T8 错误消息与引导（E1–E5）/ ' +
       '凭据入口（env 优先、文件回退、不回显）)');
   } finally {
     process.env.USERPROFILE = prevHome;

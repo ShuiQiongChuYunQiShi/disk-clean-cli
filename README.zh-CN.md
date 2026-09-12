@@ -219,6 +219,7 @@ disk-clean mcp
 | `quota [drive]` | 通过 MFT 做按用户配额分析（需管理员）：用户排名 + 每人 Downloads/Documents/Desktop/… 明细。 |
 | `health` | SMART / SSD 健康：温度、磨损百分比、通电小时、读写错误并给出健康等级。 |
 | `mcp` | 启动 **MCP server**（stdio，12 个工具），供 DeepSeek Harness / Claude Desktop / Cursor 等 AI 客户端接入。stdout 只输出协议消息，诊断信息走 stderr。 |
+| `doctor` | 环境自检 + 首次引导：检查 Node 版本、状态目录可写、管理员权限、最近报告是否过期、回收站是否可访问，并给出**下一步该敲什么**。第一次使用先跑它。 |
 | `build-info` | 以 JSON 输出本构建的身份信息（`version` / `commit` / `dirty` / `builtAt`）。用于证明下载到的 exe 就是已发布的那个构建：发布页的 `checksums.txt` 携带同一个 commit。 |
 | `--restore-point` | 加在 `clean` / `organize apply` 前，先创建系统还原点（系统保护关闭时优雅失败）。 |
 | `--lang en\|zh` | `scan` 的报告语言（自动检测，默认跟随系统语言）。 |

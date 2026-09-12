@@ -39,6 +39,15 @@ if (process.argv[2] === '--internal-scan') {
 
 const BS = '\\';
 const VER = require('../lib/version.js').VERSION;
+const suggest = require('../lib/suggest.js');
+
+// 清理类型与命令清单，作为"最接近匹配"建议的候选（E2/E3）。
+// 这两个清单必须与实现一致：capability-matrix 套件会断言 COMMANDS 与 switch 里的
+// case 完全对应，所以不会出现"建议了一个并不存在的命令"这种更迷惑人的错误。
+const CLEAN_TYPES = ['junk-temp', 'empty-dirs', 'duplicates', 'stale-large', 'recycle-bin'];
+const COMMANDS = ['scan', 'report', 'organize', 'fix-shortcuts', 'clean', 'audit', 'config',
+  'schedule', 'doctor', 'mftscan', 'health', 'drives', 'quota', 'dedup', 'serve', 'mcp',
+  'build-info', 'version', 'help'];
 
 // SEA（单文件 exe）检测：node 环境 spawn 需带脚本路径，SEA 环境直接自我调用
 let IS_SEA = false;
@@ -209,6 +218,7 @@ async function cmdReport(o) {
   // 用户可能拿着三天前的报告做清理决策，界面上看不出来。这里把出处补齐。
   if (prov.generatedLocal) {
     console.log('  生成时间 : ' + prov.generatedLocal + '（' + prov.ageText + '）' +
+      (prov.version ? '  ｜ 版本 v' + prov.version : '') +
       (prov.stale ? '  ' + col(C.yellow, '⚠ 已超过 ' + prov.staleHours + ' 小时，建议重新扫描') : ''));
   } else {
     console.log('  生成时间 : ' + col(C.yellow, '未知（该报告未记录生成时间）'));
@@ -325,6 +335,19 @@ async function cmdFixShortcuts(o) {
 // ---------- 命令: clean ----------
 async function cmdClean(o) {
   const type = o._[0];
+  // E1：缺类型时不要输出 `未知清理类型: undefined` —— 那既没说清问题，也没给出选项，
+  // 用户甚至分不清是"没给"还是"给错了"。
+  if (!type) {
+    return fail('缺少清理类型', '可选：' + CLEAN_TYPES.join(' / ') +
+      '\n    示例：disk-clean clean junk-temp');
+  }
+  // E2：类型是否合法**不需要**先有报告就能判定，所以这一条必须排在读报告之前——
+  // 否则在没有报告的环境里，用户拼错类型会先收到"未找到扫描报告"，
+  // 被引去跑一次扫描，回来才发现真正的问题是类型写错了。
+  if (CLEAN_TYPES.indexOf(type) < 0) {
+    const c = suggest.hint(type, CLEAN_TYPES);
+    return fail('未知清理类型: ' + type + (c ? '。' + c : '') + '（' + CLEAN_TYPES.join(' | ') + '）');
+  }
   const reportFile = o.values.report || audit.reportFile();
   const rep = audit.readJson(reportFile);
   if (!rep) return fail('未找到扫描报告（请先运行 scan）');
@@ -353,7 +376,9 @@ async function cmdClean(o) {
       paths = safeOnly(paths);
       if (paths.length === 0) return fail('未从报告中提取到陈旧大文件候选，请显式传入：disk-clean clean stale-large <path1> <path2> ...');
     } else {
-      return fail('未知清理类型: ' + type + '（junk-temp | empty-dirs | duplicates | stale-large | recycle-bin）');
+      // E2：拼错时给最接近的一个（`junk` → `junk-temp`），少一轮试错
+      const c = suggest.hint(type, CLEAN_TYPES);
+      return fail('未知清理类型: ' + type + (c ? '。' + c : '') + '（' + CLEAN_TYPES.join(' | ') + '）');
     }
   }
   const dryRun = o.flags['dry-run'] || o.flags.dryRun;
@@ -683,6 +708,87 @@ async function cmdConfig(o) {
   return fail('config 子命令: show | set <path> <value> | reset | path');
 }
 
+// ---------- 命令: doctor（环境自检 + 首次引导，E4）----------
+// 为什么产品里需要它：新用户拿到工具后，文档要求他"先 scan"——但他不知道自己这台机器
+// 是否具备条件（权限、状态目录、报告新旧），也不知道下一步该敲什么。
+// 这条命令把"从哪开始"变成可执行的输出，而不是要人去读文档猜。
+// 逐项给**下一步命令**，这是本仓库对"拒绝/提示"的一贯要求（提示要能直接照做）。
+async function cmdDoctor() {
+  const rows = [];
+  const add = function (level, name, detail, next) { rows.push({ level: level, name: name, detail: detail, next: next }); };
+
+  // 1) Node 运行时（npm 安装方式用系统 Node；单文件 exe 内置运行时）
+  const major = Number(process.versions.node.split('.')[0]);
+  const minor = Number(process.versions.node.split('.')[1]);
+  const nodeOk = major > 18 || (major === 18 && minor >= 15);
+  add(nodeOk ? 'ok' : 'bad', 'Node 运行时', 'v' + process.versions.node,
+    nodeOk ? null : '升级到 Node 18.15+（fs.statfsSync 与 node:sea 的下限）');
+
+  // 2) 状态目录可写（扫描/清理/审计都写它）
+  let writable = false, why = '';
+  try {
+    fs.mkdirSync(audit.dskDir(), { recursive: true });
+    const probe = path.join(audit.dskDir(), '.doctor-probe');
+    fs.writeFileSync(probe, 'x');
+    fs.unlinkSync(probe);
+    writable = true;
+  } catch (e) { why = e.code || e.message; }
+  add(writable ? 'ok' : 'bad', '状态目录可写', audit.dskDir() + (writable ? '' : '（' + why + '）'),
+    writable ? null : '检查目录权限；扫描/清理/审计都依赖它');
+
+  // 3) 管理员权限：只有 mftscan / quota / health 需要，常规扫描不需要
+  let admin = false;
+  try {
+    admin = require('child_process').spawnSync('net', ['session'], { windowsHide: true }).status === 0;
+  } catch (e) { admin = false; }
+  add(admin ? 'ok' : 'warn', '管理员权限',
+    admin ? '已提权' : '未提权（常规扫描不需要，mftscan / quota / health 需要）',
+    admin ? null : '需要时用管理员身份重开终端；scan / report / clean 不需要');
+
+  // 4) 最近报告的新鲜度——clean / organize 的候选路径就取自它
+  const rep = audit.readJson(audit.reportFile());
+  const prov = require('../lib/report.js').describe(rep);
+  if (!prov.present) {
+    add('warn', '最近报告', '还没有扫描过', '先跑一次：disk-clean scan D:\\');
+  } else {
+    add(prov.stale ? 'warn' : 'ok', '最近报告',
+      prov.rootsText + '，生成于 ' + (prov.generatedLocal || '未知') + '（' + prov.ageText + '）',
+      prov.stale ? '报告已超过 ' + prov.staleHours + ' 小时，建议重新扫描：disk-clean scan ' + (prov.roots[0] || 'D:\\') : null);
+  }
+
+  // 5) 回收站可访问（清理默认是"移入回收站"而不是删除）
+  let binOk = false;
+  try { fs.accessSync('C:\\$Recycle.Bin'); binOk = true; } catch (e) { binOk = false; }
+  add(binOk ? 'ok' : 'warn', '回收站可访问', binOk ? '可读' : '不可读',
+    binOk ? null : '通常需要管理员权限；不加 --yes 的预览不受影响');
+
+  console.log(col(C.bold, 'disk-clean 环境自检') + col(C.gray, '  v' + VER));
+  console.log('');
+  for (const r of rows) {
+    const mark = r.level === 'ok' ? col(C.green, '✓') : (r.level === 'bad' ? col(C.red, '✗') : col(C.yellow, '!'));
+    console.log('  ' + mark + ' ' + r.name.padEnd(16) + col(C.gray, r.detail));
+    if (r.next) console.log('      ' + col(C.yellow, '→ ' + r.next));
+  }
+  console.log('');
+  const bad = rows.filter(function (r) { return r.level === 'bad'; });
+  if (bad.length) {
+    console.log('  ' + col(C.red, bad.length + ' 项需要处理') + col(C.gray, '，修好后再试'));
+    return 1;
+  }
+  // 收尾给一条"从这里开始"的路径——自检的价值有一半在于告诉人下一步做什么
+  console.log('  ' + col(C.cyan, '建议的下一步：'));
+  if (!prov.present) {
+    console.log('    1) disk-clean scan D:\\          扫描并生成报告（可多个盘：scan C:\\ D:\\）');
+    console.log('    2) disk-clean report            查看报告与建议');
+    console.log('    3) disk-clean clean junk-temp   预览清理（默认 dry-run，加 --yes 才执行）');
+  } else {
+    console.log('    1) disk-clean report            查看最近报告与建议');
+    console.log('    2) disk-clean clean <类型>      预览清理（默认 dry-run）');
+    console.log('    3) disk-clean report --history  回看历史归档');
+  }
+  return 0;
+}
+
 // ---------- help / version ----------
 // 制品形态下带上构建短哈希（S9）：用户下载到 exe 后，这一行就能证明它是由哪个
 // commit 打出来的，不必依赖发布页的说明。源码形态没有指纹，输出保持原样。
@@ -724,6 +830,8 @@ function help() {
   console.log('                              (仅绑定 127.0.0.1, Bearer 鉴权, 常驻)');
   console.log('  build-info                  输出构建信息 JSON（版本/commit/是否脏树）');
   console.log('                              (校验下载到的 exe 是否等于已发布构建)');
+  console.log('  doctor                      环境自检 + 首次引导（权限/状态目录/报告新旧）');
+  console.log('                              (第一次用先跑这个，它会告诉你下一步敲什么)');
   console.log('  clean / organize apply --restore-point   执行前先建系统还原点 (失败不中断)');
   console.log('');
   console.log('通用选项:');
@@ -735,8 +843,12 @@ function help() {
   return 0;
 }
 
-function fail(msg) {
+// hint 是"下一步怎么办"。CLI 这一侧此前只接受 msg，调用方传的第二个参数被静默丢弃
+// （这次写 E1 时才发现：MCP 侧的 fail 一直支持 hint，CLI 侧不支持——同一件事两个面不一致）。
+// 本仓库对"拒绝"的一贯要求是：拒绝必须带下一步。
+function fail(msg, hint) {
   console.error(col(C.red, '✗ ' + msg));
+  if (hint) console.error(col(C.yellow, '  → ' + hint));
   return 1;
 }
 
@@ -802,7 +914,12 @@ async function main() {
       case 'help': case '-h': case '--help': case undefined:
         if (o.flags.version || o.flags.v) { console.log(versionLine()); return 0; }
         return help();
-      default: return fail('未知命令: ' + cmd + '（--help 查看用法）');
+      case 'doctor': return await cmdDoctor();
+      default: {
+        // E3：命令拼错时给最接近的一个（`scna` → `scan`）
+        const c = suggest.hint(cmd, COMMANDS);
+        return fail('未知命令: ' + cmd + (c ? '。' + c : '') + '（--help 查看用法）');
+      }
     }
   } catch (e) {
     return fail('运行时错误: ' + (e && e.stack ? e.stack : String(e)));
