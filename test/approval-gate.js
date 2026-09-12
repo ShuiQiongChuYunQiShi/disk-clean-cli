@@ -214,6 +214,20 @@ it('审批版本必须与 lib/version.js 一致', () => {
   assert(out.indexOf('不一致') >= 0, '应当说明版本不一致，实际：' + out.trim().slice(0, 120));
 });
 
+it('审批渠道：旧文件视为交互、--session 如实标注、乱填值归一化', () => {
+  // 为什么要这一条：审批文件记录"同意是从哪来的"（本机键盘键入，还是会话中明确同意）。
+  // 它防的不是别人，而是**把会话同意标成本机交互确认**——那是伪造证据，
+  // 而伪造的证据比没有证据更糟，因为它看起来更硬。
+  assert(validate(goodDoc()).channel === 'interactive',
+    '没有 channel 字段的旧审批文件应视为交互确认（那时只有那一条路径）');
+  assert(validate(goodDoc({ channel: 'interactive' })).channel === 'interactive', 'interactive 应被识别');
+  assert(validate(goodDoc({ channel: 'session' })).channel === 'session', 'session 应被识别');
+  assert(validate(goodDoc({ channel: 'trust-me' })).channel === 'interactive',
+    '未知渠道值必须归一化为 interactive —— 乱填一个名字不该换来更可信的标记');
+  assert(validate(goodDoc({ channel: 'SESSION' })).channel === 'interactive',
+    '渠道匹配区分大小写，避免拼写差异产生"看起来是但又不太是"的第三种状态');
+});
+
 it('门禁位置：approval check 必须排在任何写操作之前', () => {
   // 门禁"存在"和门禁"在正确的位置"是两件事。若有人把审批检查挪到创建 tag 之后，
   // 门禁依然会拦住本次发布，但**已经在远端留下了 tag**——不可逆的副作用先发生了。

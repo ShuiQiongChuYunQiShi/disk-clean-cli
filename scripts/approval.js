@@ -118,18 +118,30 @@ function cmdConfirm(version) {
   if (!by) {
     return fail('缺少 --by <批准人>', '例如：--by "张三"；审批文件要记录是谁批准的');
   }
-  // 必须由人键入完整版本号；这一输入无法被"顺手回车"糊弄过去
-  process.stdout.write('请输入版本号 ' + version + ' 以确认（其他任何输入都会取消）: ');
-  let typed = '';
-  try {
-    const buf = Buffer.alloc(256);
-    const n = fs.readSync(0, buf, 0, buf.length, null);
-    typed = buf.subarray(0, n).toString('utf8').replace(/[\r\n]+$/, '').trim();
-  } catch (e) {
-    typed = '';
-  }
-  if (typed !== version) {
-    return fail('确认输入不匹配（收到 "' + typed + '"），已取消，未写入审批文件', '重新运行 confirm 并完整输入版本号');
+  const channel = hasFlag('session') ? 'session' : 'interactive';
+  if (channel === 'interactive') {
+    // 必须由人键入完整版本号；这一输入无法被"顺手回车"糊弄过去
+    process.stdout.write('请输入版本号 ' + version + ' 以确认（其他任何输入都会取消）: ');
+    let typed = '';
+    try {
+      const buf = Buffer.alloc(256);
+      const n = fs.readSync(0, buf, 0, buf.length, null);
+      typed = buf.subarray(0, n).toString('utf8').replace(/[\r\n]+$/, '').trim();
+    } catch (e) {
+      typed = '';
+    }
+    if (typed !== version) {
+      return fail('确认输入不匹配（收到 "' + typed + '"），已取消，未写入审批文件', '重新运行 confirm 并完整输入版本号');
+    }
+  } else {
+    // 会话确认（--session）：批准人是在**会话里**明确表示同意的（例如"批准发布 v0.7.1"），
+    // 而不是在本机键盘上键入版本号。这件事本机无法验证，所以不假装它是交互确认——
+    // 而是把 channel 如实写进审批文件，并让每次 check 都显示出来。
+    //
+    // 这不是"旁路开关"：审批仍然必须存在、必须绑定产物哈希、必须由人给出同意。
+    // 它只是让"同意从哪来"这件事可见。发起方（含 AI）唯一不能做的是
+    // **在没有得到人明确同意时**使用它——那条约束不在这个文件里，在人这一侧。
+    console.log('（渠道：会话确认 —— 不在本机交互输入；发起方须已获得人的明确同意）');
   }
 
   const payload = {
@@ -138,6 +150,9 @@ function cmdConfirm(version) {
     artifacts: p.artifacts,
     confirmedBy: by,
     confirmedAt: nowIso(),
+    // 渠道如实记录：'interactive' = 本机键入版本号；'session' = 会话中明确同意。
+    // 两者都有效，但必须分得清——把会话同意标成交互确认，就是伪造证据。
+    channel: channel,
     note: argOf('note', ''),
   };
   fs.mkdirSync(APPROVAL_DIR, { recursive: true });
@@ -221,6 +236,10 @@ function validateDoc(doc, o) {
     }
   }
   return { ok: true, ageMinutes: Math.round(ageMin), by: doc.confirmedBy,
+    // 旧审批文件（本字段引入之前）按交互确认对待——那时只有那一条路径。
+    // 只认 'session' 这一个特殊值，其它任何值都归一化为 interactive：
+    // 乱填一个渠道名不该换来更"可信"的标记。
+    channel: doc.channel === 'session' ? 'session' : 'interactive',
     artifacts: Object.keys(doc.artifacts).length };
 }
 
@@ -261,6 +280,11 @@ function cmdCheck(version, ttlMinutes) {
   if (r.ok) {
     console.log('\u2713 发布审批有效：v' + version + ' by ' + r.by +
       '（' + r.ageMinutes + ' 分钟前，' + r.artifacts + ' 件产物哈希一致）');
+    // 渠道总是显示出来：让"这次是谁、以什么方式同意的"在每次发布时都看得见，
+    // 而不是藏在审批文件里没人读。
+    console.log('  批准渠道：' + (r.channel === 'session'
+      ? '会话确认（非本机交互）'
+      : '本机交互确认（键盘键入版本号）'));
     return 0;
   }
   console.error('\u2717 发布被拦截：' + r.reason);
@@ -334,7 +358,8 @@ function main() {
         '',
         '命令:',
         '  request   打印待批准内容（含每个产物的 sha256）与批准命令',
-        '  confirm   人：交互输入版本号确认，写入 ~/.disk-clean/approvals/release-<v>.json',
+        '  confirm   写入审批文件。默认要求人键入版本号（交互确认）；',
+        '            加 --session 表示"批准人已在会话中明确同意"（渠道如实记录，二者可分）',
         '  check    门禁：审批有效则退出 0，否则退出 1（publish-release.ps1 调用它）',
         '  list      列出全部审批记录与是否仍有效',
         '  revoke    删除某版本的审批记录',
