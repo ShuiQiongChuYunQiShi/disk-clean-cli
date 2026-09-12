@@ -2,76 +2,101 @@
 
 > 由 `node scripts/dev.js release-guide` 生成，**发布前必须人工补齐并勾选**。
 > 通用流程见 `docs/RELEASE-PLAYBOOK.md`；本文件只讲"这一次"。
-> 生成时间：2026-09-12T06:54:49.213Z
+> 生成时间：2026-09-12T07:26:51.338Z
 
 ## 一、本次上线内容
 
-- 区间：`v0.7.0..HEAD`（previous tag），共 2 个提交
-- 净变更：3160 行（+3267 / -107），变更级别 **L**
-- 产品代码（bin/lib/gui）净变更：80 行
-- 其中**尚未提交**的部分：22 个文件，+2640 / -107 行（自动化生成时工作区仍是脏的）
+- 区间：`v0.7.0..HEAD`（previous tag），共 12 个提交
+- 净变更：4510 行（+4649 / -139），变更级别 **L**
+- 产品代码（bin/lib/gui）净变更：380 行
 - 变更级别要求的验证深度：dev verify + GUI 重建 + 安装器静默安装 + 人工界面验收 + 审批
 
 | 类别 | 数量 | 说明 |
 |---|---|---|
-| feat | 1 | 新能力 |
-| fix | 0 | 缺陷修复 |
-| 其他 | 1 | 文档/测试/构建等 |
+| feat | 3 | 新能力 |
+| fix | 4 | 缺陷修复 |
+| 其他 | 5 | 文档/测试/构建等 |
 
 ### 提交明细
 
+- `ad26f71` release: v0.7.1 - trustworthy data, and gates instead of prose
+- `4b5c43a` fix(cli): show suggestion titles instead of [type] type (T5), and be honest about --lang
+- `871656c` fix(config): delete the last two dead config keys, and gate the whole category (T4)
+- `797cd6e` feat(report): implement report history, so retention.reports finally does something (T3)
+- `7798812` fix(report): give reports a provenance, and show it everywhere (T2)
+- `56dba49` fix(test): isolate ~/.disk-clean in every suite, and guard it (T1)
+- `cdb617f` docs: record the gate's positive path and the CI run in the v0.7.1 guide
+- `ba1e2b6` docs: fill in the measured verification evidence for the v0.7.1 guide
+- `3589147` docs: SOP phases 2-3 results, and a corrected reading of the navigator review
+- `5917b3e` feat(dev): script-level release gates - approval, artifact fingerprint, doc consistency
 - `a966ff6` feat(dev): unified dev entry (doctor + verify), and SOP gap analysis vs navigator
 - `b52147a` docs: product review of v0.7.0 - usability gaps, dead configs, test pollution
 
 ### 本次要点（人工补齐）
 
-本批次是**流程建设批次**（`docs/SOP-UPGRADE-PLAN.md` 的阶段二 + 阶段三），不是功能批次。
-产品代码净变更仅 80 行，其中 60 余行是新增一条诊断命令与一句版本号后缀。
+本版是**两批合一的补丁版**：流程建设（S3–S10）+ 产品整改（T1–T5）。**无新增独立能力**，
+按版本规则不升 minor，故为 0.7.1 而非 0.8.0。
 
-**新增的脚本级门禁（真正会拦住东西的）**
+**上半批：把流程从文档搬进脚本（三道门禁 + 清单 + 分级）**
 
 | 项 | 机制 | 拦住什么 |
 |---|---|---|
 | S4 发布审批 | `scripts/approval.js` + `publish-release.ps1` 第 0 步 | 无人批准不得发布；审批绑定**每个产物的 sha256**，重新构建后自动失效；`--yes/--force` 被显式拒绝 |
 | S9 制品指纹 | `scripts/build-bundle.js` 注入 commit + `scripts/fingerprint.js` 断言 | "先构建、后改代码、再发布"这种发了旧包的情况 |
-| S7 文档一致性 | `test/docs-consistency.js` | 文档数字/清单与实现漂移；**测试文件写了却没注册进 `test/all.js`**（那等于永远不跑）；死配置被当已实现承诺 |
-| S3 声明式清单 | `disk-clean.config.json` + `scripts/manifest.js` | 仓库名/包名/资产名散落各处；构建了却没人发布的产物 |
+| S7 文档一致性 | `test/docs-consistency.js` | 文档数字与实现漂移；**测试写了却没注册进 `test/all.js`**（等于永不运行）；死配置被当已实现承诺 |
+| S3/S5/S6/S8 | `disk-clean.config.json` + `dev analyze/changelog/release-guide` | 发布资产散落成字面量；变更分级与发版指南靠人工 |
 
-**流程变更（需要知晓）**
+**下半批：产品整改（P0 + P1）**
 
-- **CI 不再在 push tag 时自动创建 Release**。此前 `git push --tags` 会发布一个未获批、且只有引擎（没有 GUI 安装器）的半成品 Release，等于绕过审批门禁。现在 CI 只构建并上传 workflow artifact；发布只能由 `scripts/publish-release.ps1` 完成。
-- 发布前置条件变成**硬性**：`docs/RELEASE_NOTES-v<ver>.md` 与 `docs/release-guide-v<ver>.md` 缺任一，`publish-release.ps1` 直接 exit 1。
-- `publish-release.ps1` 的审批门禁排在 `GH_TOKEN` 检查**之前**——"该不该发"先于"能不能发"。
+- **T1（P0）测试不再写用户真实数据**：15 个套件里 12 个曾直接读写 `~/.disk-clean/`——
+  报告被覆盖、审计被污染、测试文件被丢进用户回收站。现全部隔离，并加两层守卫
+  （静态：新增套件漏隔离则整体失败；运行时：跑测试前后对真实目录做**内容哈希**比对）。
+- **T2 报告溯源**：报告写入 `generatedAt` + 工具版本；CLI / MCP / GUI **每处输出**都显示生成时间与范围，
+  超 24 小时提示重新扫描。旧报告回落到 `summary.scannedAt`，因此存量报告也能判断新旧。
+- **T3 报告历史**：实现 `retention.reports`（此前从无读取点），每次扫描归档一份 gzip、
+  保留最近 N 份；入口为 `report --history` 与 MCP `disk_report section=history`。
+- **T4 配置面清查**：删除 `junkRules` / `organizeRules`（从未被读取却被承诺），
+  并把"已删除字段不得卷土重来"变成断言。
+- **T5 建议显示修复**：CLI 此前读错字段名，输出 `[junk-temp] junk-temp`，现显示真正的中文标题。
+  同时按决定把 `--lang en` 改为**诚实说明**（英文 README 顶部注明 CLI 输出为中文）。
 
-**用户可见变化（因此需要一条 CHANGELOG 与 Release Notes）**
+**流程变更（需知晓）**
 
-- 新增 CLI 命令 `build-info`（输出版本 / commit / 是否脏树的 JSON）；`--version` 在制品形态下会追加构建短哈希。
-- `~/.disk-clean/config.json` 的 `version` 字段被删除：它从未被读取，且与应用版本号同名、容易被误认为能改版本。
-- `disk_config` 的 MCP 工具描述不再承诺 `retention.reports` / `junkRules` / `organizeRules`——这三个字段确实存在但引擎尚未读取，现在描述里会明说。
+- **CI 不再在 push tag 时自动创建 Release**。此前 `git push --tags` 会发布一个未获批、
+  且只有引擎（没有 GUI 安装器）的半成品 Release，等于绕过审批门禁。
+- 发布前置条件变成硬性：`docs/RELEASE_NOTES-v<ver>.md` 与 `docs/release-guide-v<ver>.md` 缺任一即拒绝发布。
+- `publish-release.ps1` 的审批门禁排在 `GH_TOKEN` 检查之前——"该不该发"先于"能不能发"。
 
 ## 二、测试状态
 
-下表中的 ✅ 是**流程建设批次提交后**（`5917b3e` / `3589147`）的真实实测结果，不是计划。
-版本号 bump 到 0.7.1 之后必须重跑 `dev verify`：届时版本一致性、指纹 commit、清单路径都会变。
+下表中的 ✅ 是**本版提交后（`ad26f71`）在本机实测**的结果，不是计划。
 
 | 项 | 结果 | 证据 |
 |---|---|---|
-| 全量测试 | ✅ 15/15 | `node test/all.js` → `SUMMARY: 15/15 passed` |
-| 一键验证链 | ✅ 7 步全过、**0 跳过** | `node scripts/dev.js verify`：语法 48 文件 / 15 套件 / `.ps1` ASCII 5 个 / 版本一致性 9 源 / 清单一致性 / 制品指纹 / exe 端到端 |
-| 制品指纹（真实产物） | ✅ | `dist\disk-clean-win-x64.exe build-info` → `commit=3589147 dirty=false`，等于 HEAD |
-| 脏树会被拒绝 | ✅ | 制造一个未提交文件后 `fingerprint.js check --require-clean-worktree` → exit 1，理由："有未提交改动（发布时不允许：tag 指向的提交不含这些改动）" |
-| 审批门禁拦截 | ✅ | 无审批时 `publish-release.ps1 0.7.0` → **exit 1**，且输出中**无任何 preflight / tag / release 行**，即零副作用、未触网 |
-| 审批门禁**正向放行** | ✅ | 临时审批目录（`DSK_APPROVAL_DIR`）下 `confirm` → `check` **exit 0**（"2 件产物哈希一致"）；随后 `publish-release.ps1` **越过了第 0 步**，停在下一道门（缺 `docs/release-guide-v0.7.0.md`）。门禁必须会放行，否则它就只是"永远说不" |
-| 发布前置文档门禁 | ✅ | 同上：缺少 notes 或 guide 时发布被拒，并打印生成骨架的命令 |
-| 审批门禁行为 | ✅ 19 项断言 | `node test/approval-gate.js`（放行 2 / 拦截 17） |
-| 环境自检 | ⚠️ **2 项阻塞** | `node scripts/dev.js doctor` → `GH_TOKEN 未设置`、`NPM_TOKEN 未设置`（其余全绿：Node 22.21.1 / esbuild / postject / .NET 8.0.424 / Inno Setup 6 / gh / 代理 / 状态目录 / 审批目录 / 版本一致性） |
-| 版本号 bump 到 0.7.1 | ☐ | 当前源码版本仍为 **0.7.0**，bump 后需重跑 `dev verify` |
-| `docs/RELEASE_NOTES-v0.7.1.md` 已写 | ☐ | **发布前必须补**（缺则该文件会让发布脚本直接拒绝） |
-| `CHANGELOG.md` 已补本版条目 | ☐ | **发布前必须补**；骨架可用 `node scripts/dev.js changelog` 生成 |
-| CI 最新 run | ✅ | `build` @ `ba1e2b6` **success** — [run 34679620396](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/actions/runs/34679620396)（这是流程建设批次的 run；发布时须对本 tag 的 run 重新确认） |
+| 全量检查 | ✅ **19/19** | `node test/all.js` → `SUMMARY: 19/19 passed`（17 个套件 + 2 项 runner 自检） |
+| 一键验证链 | ✅ 7 步全过、**0 跳过** | `node scripts/dev.js verify`：语法 53 文件 / 19 项检查 / `.ps1` ASCII 5 个 / 版本一致性 9 源 / 清单一致性 / 制品指纹 / exe 端到端 |
+| 制品指纹（真实 82 MB exe） | ✅ | `build-info` → `{"version":"0.7.1","commit":"ad26f71","dirty":false}`，等于 HEAD |
+| 测试不碰真实状态目录 | ✅ | runner 后置自检：真实 `~/.disk-clean` **未被改动**（此前每跑一次测试都会被写入） |
+| 报告溯源与历史 | ✅ | `report-provenance` / `report-history` 两套件覆盖（含 24h 边界、旧报告回落、gzip 往返、N 份裁剪、同秒撞名） |
+| 版本一致性 | ✅ | `v0.7.1（9 个版本源一致）` |
+| `docs/RELEASE_NOTES-v0.7.1.md` 已写 | ✅ | 本目录 |
+| `CHANGELOG.md` 已补本版条目 | ✅ | `[0.7.1]` 段 |
+| 环境自检 | ⚠️ **2 项阻塞** | `node scripts/dev.js doctor` → `GH_TOKEN 未设置`、`NPM_TOKEN 未设置`（其余全绿）。**发布前必须恢复** |
+| 发布审批 | ☐ | 发布前由人执行 `node scripts/approval.js confirm --version 0.7.1 --by "<名字>"` |
+| CI 最新 run 绿 | ☐ | 推送后填写 |
 
-> 注：`dev verify` 打印的"跳过"步骤不计入通过，必须数清楚。本次 7 步中 0 跳过，
-> 是**因为 exe 已重建**——若 `dist/` 里没有产物，指纹与端到端两步会被显式标为 skip 并在汇总里列出。
+> `dev verify` 打印的"跳过"步骤不计入通过，必须数清楚。本次 7 步中 0 跳过，
+> 是因为 exe 已按最终提交重建；若 `dist/` 无产物，指纹与端到端两步会被显式标为 skip 并在汇总里列出。
+
+## 附：GUI 侧未验证项（如实记录）
+
+本版**未改动 GUI 产品行为**（仅前端新增一行生成时间渲染 + 两个 i18n 键），
+但变更级别为 L，按要求仍需 GUI 验收。截至生成本指南时**以下两项未做**：
+
+- ☐ GUI 安装器重建：`powershell -File scripts\build-installer.ps1`
+- ☐ 静默安装 + 启动 + 扫描 + 生成时间显示的界面验收
+
+不要因为"只改了一行前端"就跳过——v0.3.x 那批事故正是"只改了一点"造成的。
 
 ## 三、上线前准备清单
 

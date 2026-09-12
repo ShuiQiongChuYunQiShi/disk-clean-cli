@@ -71,7 +71,9 @@ const suiteClaims = []
 for (const c of suiteClaims) {
   assert(c.n === registered.length,
     c.label + ' 声称『' + c.raw + '』，实际套件数为 ' + registered.length +
-    '（新增套件后请同步文档；这条断言就是为了让忘记同步变成构建失败）');
+    '。改法二选一：① 这是当前状态的陈述 → 把数字改成实际的 ' + registered.length +
+    '；② 这是历史叙述（"当时有 N 个套件"）→ 用中文/英文数词写（"当时十五个套件"、"the fifteen suites"），' +
+    '避免与当前值混淆。不要为此放宽本断言。');
 }
 
 // ---------------------------------------------------------------- C. MCP 工具数量与名单
@@ -311,7 +313,8 @@ const REMOVED_CONFIG_KEYS = ['blacklist', 'junkRules', 'organizeRules'];
 for (const key of REMOVED_CONFIG_KEYS) {
   for (const pair of [['README.md', README], ['README.zh-CN.md', README_ZH]]) {
     assert(pair[1].indexOf(key) < 0,
-      pair[0] + ' 提到了已删除的配置字段 "' + key + '"——被删掉的能力不该再出现在文档里');
+      pair[0] + ' 提到了已删除的配置字段 "' + key + '"——被删掉的能力不该再出现在文档里。' +
+      'README 说明的是"工具能做什么"，因此不列出已删除的能力；变更记录请写进 CHANGELOG.md 或 docs/RELEASE_NOTES-v<ver>.md。');
   }
   for (const t of mcpToolDescs) {
     assert(String(t.description || '').indexOf(key) < 0,

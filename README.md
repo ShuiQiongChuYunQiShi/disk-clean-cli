@@ -10,6 +10,18 @@
 
 ---
 
+## What's new in v0.7.1
+
+**Trustworthy data.** A patch release — no new capabilities, two batches of fixes.
+
+- **Tests no longer touch your real data.** Twelve of the fifteen suites (as they stood then) read and wrote your actual `~/.disk-clean/`: scan reports were overwritten with temp-tree results, the audit log was polluted, and test files were sent to your recycle bin. Fully isolated now, with two guards — a static one (a new suite that forgets to isolate fails the run) and a content-hash snapshot of the real directory taken before and after.
+- **Reports have a provenance and a history.** Generation time and scan range now appear in the CLI, in MCP responses and in the GUI, with a ">24 h — rescan recommended" warning. Every scan is also archived (gzip) to `~/.disk-clean/reports/`, keeping the newest N via `retention.reports` — a config key that existed for several versions with nothing reading it. List them with `disk-clean report --history`.
+- **`disk-clean build-info`** prints the version, commit and whether the tree was clean when this binary was built. The release `checksums.txt` carries the same commit, so a downloaded exe can be checked against the source revision instead of trusted by filename.
+- **Suggestion lines fixed.** They printed `[junk-temp] junk-temp` because the CLI read `label` on an object whose field is `title`. The sample output documented in this README had been correct all along; the code was wrong.
+- **Two dead config keys removed**: they were never read by the engine, yet the MCP tool description promised them as working features. (Which keys, and why: see CHANGELOG — this file documents what the tool *can* do, so it does not list capabilities that were deleted.)
+
+See [docs/RELEASE_NOTES-v0.7.1.md](docs/RELEASE_NOTES-v0.7.1.md) for details.
+
 ## What's new in v0.6.0
 
 **Security hardening — upgrade recommended for all v0.5.x users.** An independent review of v0.5.0 found one P0 and several safety defects; all were reproduced before being fixed.
