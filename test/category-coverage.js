@@ -121,11 +121,19 @@ const TOP30 = [
     fs.writeFileSync(path.join(scanRoot, 'blob.unknownext99'), Buffer.alloc(200 * 1024, 0x42));
     const reportPath = path.join(tree, 'r.json');
 
-    execFileSync(process.execPath,
-      [path.join(ROOT, 'bin', 'disk-clean.js'), 'scan', scanRoot, '--report', reportPath],
-      { encoding: 'utf8', windowsHide: true, timeout: 180000 });
+    // 语言必须**显式**指定。这一条是 CI 教我加的：CI 跑在 en-US 系统上，
+    // buildMarkdown 自动检测后生成英文标题（"Uncategorized by size"），
+    // 而本地是中文系统 → 同一个断言两边结果不同。
+    // 也就是说这条测试原本依赖了外部环境（与 PLAYBOOK 第 43 条同类），
+    // 而"只在 CI 上失败的测试"正是这种依赖的典型表现。语言钉死后两边一致。
+    const scan = (lang, file) => {
+      execFileSync(process.execPath,
+        [path.join(ROOT, 'bin', 'disk-clean.js'), 'scan', scanRoot, '--report', file, '--lang', lang],
+        { encoding: 'utf8', windowsHide: true, timeout: 180000 });
+      return JSON.parse(fs.readFileSync(file, 'utf8'));
+    };
 
-    const rep = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    const rep = scan('zh', reportPath);
     assert(Array.isArray(rep.uncategorizedTop), '报告必须含 uncategorizedTop 字段（v9-2）');
     const exts = rep.uncategorizedTop.map((u) => u.ext);
     assert(exts.indexOf('unknownext99') >= 0,
@@ -133,8 +141,16 @@ const TOP30 = [
     assert(exts.indexOf('mp4') < 0, '已分类的扩展名不应出现在未分类清单里');
 
     const md = fs.readFileSync(reportPath.replace(/\.json$/i, '') + '.md', 'utf8');
-    assert(md.indexOf('未分类占用 Top') >= 0, 'Markdown 报告必须含"未分类占用 Top"段落');
+    assert(md.indexOf('未分类占用 Top') >= 0, 'Markdown 报告（zh）必须含"未分类占用 Top"段落');
     assert(md.indexOf('unknownext99') >= 0, 'Markdown 的未分类段落应列出该扩展名');
+
+    // 英文侧同样要存在——否则"加了段落"只对中文成立，英文报告仍会把缺口藏起来
+    const enPath = path.join(tree, 'en.json');
+    const repEn = scan('en', enPath);
+    assert(repEn.uncategorizedTop.some((u) => u.ext === 'unknownext99'),
+      'uncategorizedTop 与语言无关，英文报告也应含该扩展名');
+    const mdEn = fs.readFileSync(enPath.replace(/\.json$/i, '') + '.md', 'utf8');
+    assert(mdEn.indexOf('Uncategorized by size') >= 0, 'Markdown 报告（en）也必须含未分类段落');
   } finally {
     try { fs.rmSync(tree, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { /* ignore */ }
   }
