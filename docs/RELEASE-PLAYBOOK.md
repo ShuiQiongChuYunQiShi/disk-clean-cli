@@ -469,6 +469,19 @@ checksums.txt           （含两项 sha256/size/version 行，发布时由 publ
     发布前先跑 `scripts/publish-release.ps1` 的第 0 步预检，它会直接告诉你要补哪个权限。
 30. **token 泄露后必须轮换**：一旦 PAT 出现在对话记录、日志或提交里，立即到
     Settings → Developer settings → Fine-grained tokens 撤销重建（撤销即时生效，代价只是重配一次）。
+36. **npm 渠道要单独核对，别信文档**（2026-09-11 实测）：本项目文档一度写着"npm 首发未执行"，
+    实际 `disk-clean@0.4.1` 自 2026-08-25 起就是 `dist-tags.latest`，且**含当时已修的全部 P0/A2/A3**
+    （`hardlinkGroup` 不查 `approx`、不调 `guard`，无 `lib/guard.js`、无 `lib/mcp/tools.js`）。
+    核对手法：`Invoke-RestMethod https://registry.npmjs.org/<pkg>` 看 `dist-tags`，
+    必要时下载 tarball 实检（`registry.npmjs.org/<pkg>/-/<pkg>-<ver>.tgz`）。
+    **推论：发布渠道的状态必须逐条实证，"我记得没发过"不算。**
+37. **`push.ps1` 的"假成功"会让回退永不执行**（G55）：代理上的 `git push` 实际没推上去，
+    脚本却打印 `Push succeeded`，于是 **direct 回退分支从未运行**（它只在返回码非 0 时才走），
+    只有第 2 步校验发现了异常。两个成因：① 未在调用前清空 `$LASTEXITCODE`——
+    git 进程若根本没启动，PowerShell 会**保留上一次的值（常常是 0）**，失败读成成功；
+    ② 用返回码单独判定成功。修法：调用前置 `$global:LASTEXITCODE = $null`、null 视为失败，
+    且**代理尝试必须先通过 local==remote 校验才算成功**，否则落入直连分支。
+    排查用：`git -c http.proxy= -c https.proxy= push origin master`（绕过代理直连）。
 
 ### 发布脚本的宿主差异（v0.5.0 实测增补）
 
