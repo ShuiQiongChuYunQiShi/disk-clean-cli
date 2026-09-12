@@ -59,6 +59,12 @@
 
 ## 安装
 
+> ⚠️ **npm 包已陈旧。** `npm install -g disk-clean` 与 `npx -y disk-clean` 目前解析到的是
+> **0.4.1**（2026-08-25 发布）——它既没有 MCP server，也**不含 v0.6.0 的安全修复**，
+> 仍带有会静默、不可逆破坏文件内容的硬链接合并缺陷。
+> 在 v0.6.0 发布到 npm 之前，请改用 GitHub Releases 资产（方式 A / D）或从源码安装。
+> 跟踪项见 [docs/PLAN-v0.7.md](docs/PLAN-v0.7.md) §4。
+
 ### 方式 A —— 单个 EXE（推荐）
 
 从 [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) 下载 `disk-clean-win-x64.exe` —— 无需安装 Node.js。
@@ -70,13 +76,20 @@
 ### 方式 B —— 通过 Node.js（>= 18.15）
 
 ```powershell
-npm install -g disk-clean    # 或：git clone + npm link
+git clone https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli.git
+cd disk-clean-cli && npm install -g .   # 或：npm link
+
+# npm registry 上的副本停留在 0.4.1，直到 v0.6.0 发布：
+#   npm install -g disk-clean
 disk-clean scan D:\
 ```
 
 ### 方式 C —— MCP server（AI 驱动，任意客户端通用）
 
 `disk-clean mcp` 启动一个标准 **MCP（Model Context Protocol）** server，通过 stdio 把 12 个磁盘工具暴露给 AI 客户端。零依赖、不需要额外的 SDK。
+
+> 需要 v0.5.0 或更高版本。npm 上的 0.4.1 **没有** MCP server，因此 `npx -y disk-clean mcp`
+> 目前会失败 —— 在 npm 更新前请使用指向仓库/源码的绝对路径形式。
 
 ```jsonc
 // DeepSeek Harness / Claude Desktop / Cursor —— 通用配置

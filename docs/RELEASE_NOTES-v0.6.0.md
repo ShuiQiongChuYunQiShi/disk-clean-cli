@@ -153,17 +153,25 @@ npm install -g disk-clean
 
 ## 已知问题 / 未完成
 
-- **npm 首发仍未执行**（`package.json` 已就绪，需维护者手动输入 OTP）。
+- 🔴 **npm 渠道停留在 0.4.1，而该版本含本版修复的 P0**：`npm install -g disk-clean` 装到的是
+  2026-08-25 发布的 0.4.1。实检其 tarball 确认：`hardlinkGroup` 不检查 `approx`、不调 `guard`、
+  无 `lib/guard.js`、无 `lib/mcp/tools.js` —— 即 §「最重要的修复」里的 P0 与 A2/A3 全部存在。
+  **v0.6.0 尚未发布到 npm**；在解决前请使用本页的 Release 资产（EXE / 安装器）。
+- 连带后果：README 的 **Option C（MCP）对 npm 用户暂不可用** —— 0.4.1 没有 `mcp` 子命令、
+  没有 `disk-clean-mcp` bin，`npx -y disk-clean mcp` 会失败。
+  （`~/.npmrc` 里的 `_authToken` 已失效，`npm whoami` 返回 401。）
+- 处置计划见 `docs/PLAN-v0.7.md` §4。
 - `CHANGELOG.md` 缺少 **0.2.0 / 0.3.0 / 0.3.1** 三个版本条目（有 tag 与 Release，无段落记录）。
-- 锐评计划的**后续批次尚未实施**，已明确留到下一轮：
+- 锐评计划的**后续批次尚未实施**，已整理为 `docs/PLAN-v0.7.md`（含优先级与验收标准）：
   - **B1/B2 性能**：`dedup` 的文件 `stat` 串行、每个 victim 单独 spawn 一次 PowerShell
     （上千重复文件约需 30–50 分钟）。
   - **B5**：跨盘 copy 成功但 rm 失败时，会留下不可见的双份副本。
-  - **B7/B8**：`config.js` 的 `blacklist` 是死配置；`retention.auditLines` 不生效（audit 硬编码 2000）。
+  - **B7/B8**：`config.js` 的 `blacklist` 是死配置（却在 MCP 工具描述里被承诺）；
+    `retention.auditLines` 不生效（audit 硬编码 2000）。
   - **B9/B10**：`dedup rollback` / `organize rollback` 不要求 `--yes`（MCP 端却要 `confirm:true`）；
     CLI 的 `clean` 不支持 `stale-large` 自动提取。
   - **B11 / 架构季**：`engine-core.js` 的模块级状态靠 resetState + 串行队列掩盖；
-    引擎实例化、MFT 清理管线、`app.js`（1137 行）拆分留待后续。
+    引擎实例化、MFT 清理管线、`app.js`（1137 行）拆分留待 v0.8 并需重新评估。
 - MFT 直读漏读约 1.9 万记录（约 98% 覆盖），部分系统文件 `allocated` 字段异常（已有规则兜底）。
 
 ## 校验
