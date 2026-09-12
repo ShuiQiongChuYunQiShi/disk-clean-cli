@@ -62,6 +62,31 @@ function runCli(args, home) {
       'T4 retention.reports 已实现，不应再登记为未接线');
     n++;
 
+    // ============ T5：建议行必须显示 title，而不是 [type] type 这种重复 ============
+    // 起因：CLI 读的是 `s.label`，而建议对象里的字段名是 `title`（Markdown 与 MCP 都用对了，
+    // 只有这一处读错），于是回落到 type，输出了 `[junk-temp] junk-temp`。
+    // README 里记录的 `[organize-folders] 目录整理建议` 一直是对的——错的是代码。
+    {
+      const repFile = path.join(tree, 'suggest.json');
+      fs.writeFileSync(repFile, JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        tool: { name: 'disk-clean', version: 'test' },
+        summary: { roots: ['D:\\'], totalBytes: 1024, totalFiles: 1, totalDirs: 1, status: 'done' },
+        category: [],
+        suggestions: [
+          { type: 'organize-folders', title: '目录整理建议', risk: 'low', items: [{ path: 'D:\\a', bytes: 100 }] },
+          { type: 'junk-temp', title: '清理临时与缓存文件', risk: 'low', items: [{ path: 'D:\\t', bytes: 50 }] },
+        ],
+      }), 'utf8');
+      const out = runCli(['report', repFile], home);
+      assert(out.indexOf('目录整理建议') >= 0, 'T5 建议行应显示 title，实际输出：\n' + out);
+      assert(out.indexOf('清理临时与缓存文件') >= 0, 'T5 每条建议都应显示 title');
+      assert(!/\[organize-folders\]\s+organize-folders/.test(out),
+        'T5 不应再出现 [type] type 这种无意义重复，实际输出：\n' + out);
+      assert(!/\[junk-temp\]\s+junk-temp/.test(out), 'T5 同上（junk-temp）');
+    }
+    n++;
+
     // ============ v7-6：retention.auditLines 必须真正生效 ============
     const audit = require('../lib/audit.js');
     assert(typeof audit.maxAuditLines === 'function', 'v7-6 应导出 maxAuditLines 以便验证');
@@ -167,7 +192,7 @@ function runCli(args, home) {
     console.log('cli-and-config OK (' + n + ' 组断言：v7-5 blacklist 已删 / v7-6 auditLines 生效 / ' +
       'v7-9 drives 单源+命令 / v7-4 clean stale-large / v7-3 rollback 要求 --yes / ' +
       'v7-2 fs.linkSync / v7-7 双份副本上报 / ' +
-      'T4 junkRules+organizeRules 已删且不得卷土重来)');
+      'T4 junkRules+organizeRules 已删且不得卷土重来 / T5 建议显示 title 而非 [type] type)');
   } finally {
     process.env.USERPROFILE = prevHome;
     try { fs.rmSync(home, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { }

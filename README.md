@@ -6,6 +6,8 @@
 
 > ⚠️ Safety first: every destructive command is **dry-run by default**. Nothing is moved or deleted unless you pass `--yes`. Moves are logged and rollback-able.
 
+> 🌐 **Language notice (please read before reporting a bug).** The CLI prints **Chinese** console output, and the built-in suggestion titles are Chinese. `--lang en|zh` only switches the *structural* labels of the report — the Markdown heading, the column/field names and the "Generated / Elapsed / Status" line. It does **not** translate the CLI's own messages, the suggestion titles, or the category names. Treat this README as the English documentation for a Chinese-language CLI rather than as a description of an English UI; the wording above used to imply the latter. A real translation pass is tracked separately and is not in this release.
+
 ---
 
 ## What's new in v0.6.0

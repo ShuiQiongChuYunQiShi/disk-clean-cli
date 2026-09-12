@@ -156,7 +156,10 @@ function printSuggestSummary(rep) {
     for (const it of (s.items || [])) b += it.bytes || 0;
     const tag = col(C.yellow, '[' + (s.type || '?') + ']');
     const count = n + ' 项';
-    console.log('  ' + tag + ' ' + (s.label || s.type) + ' — ' + count + (b > 0 ? ' (' + fmtBytes(b) + ')' : ''));
+    // T5：这里此前读的是 `s.label`，而建议对象的字段名是 `title`（Markdown 与 MCP 都用对了，
+    // 只有这一处读错），于是回落到 type，输出成 `[junk-temp] junk-temp` 这种无意义重复。
+    // README 里记录的示例（`[organize-folders] 目录整理建议`）一直是对的——是代码错了。
+    console.log('  ' + tag + ' ' + (s.title || s.type) + ' — ' + count + (b > 0 ? ' (' + fmtBytes(b) + ')' : ''));
   }
   const oc = rep.organizeCandidates || [];
   if (oc.length > 0) {
