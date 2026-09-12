@@ -10,6 +10,24 @@
 
 ---
 
+## What's new in v0.7.2
+
+**Useful on a real disk.** Classification used to answer "Other - 76.6%" on a real 588 GB
+drive full of game assets and model weights: the largest category was "unclassified".
+It is now **11.8%**, and the report lists the biggest extensions that still have no rule,
+so the gap points at itself instead of hiding inside a total.
+
+- **Classification rebuilt from real occupancy**: game assets (`.pak` alone: 296.88 GB),
+  AI model weights, build artifacts, mobile packages - plus directory context for names
+  like `.bin` that carry no meaning on their own.
+- **The GUI no longer asks for admin on every launch.** It never needed it for
+  scan/clean/organize/dedup; the three features that do need it now say so explicitly.
+- **Errors point somewhere**: `clean` with no type lists the options, `junk` suggests
+  `junk-temp`, `scna` suggests `scan`. When nothing is close, it stays quiet.
+- **`disk-clean doctor`** for first runs; **`report --html`** for a shareable single-file
+  report; **`scan C:\ D:\`** now confirms the range before traversing minutes of disk.
+
+See [docs/RELEASE_NOTES-v0.7.2.md](docs/RELEASE_NOTES-v0.7.2.md).
 ## What's new in v0.7.1
 
 **Trustworthy data.** A patch release — no new capabilities, two batches of fixes.
