@@ -79,11 +79,27 @@ for (const s of suites) {
     console.log('PASS 真实状态目录未被改动（' + homeGuard.stateDir() + '）');
   } else {
     failed++;
-    console.log('FAIL 测试改动了用户真实的状态目录 ' + homeGuard.stateDir());
+    const all = d.added.concat(d.changed, d.removed);
+    const cls = homeGuard.classify(all);
+    console.log('FAIL 测试运行期间，用户真实的状态目录发生了变化 ' + homeGuard.stateDir());
     if (d.added.length) console.log('  新增：' + d.added.join(', '));
     if (d.changed.length) console.log('  被改：' + d.changed.join(', '));
     if (d.removed.length) console.log('  被删：' + d.removed.join(', '));
-    console.log('  这说明有套件绕过了隔离。请修隔离，不要放宽这条断言。');
+    // 只给判断依据，不代替人下结论。旧写法直接断言"这说明有套件绕过了隔离"，
+    // 而那次失败只出现一次、之后反复运行都不复现，变化的却是 health*.json。
+    // 报告一个无法证明的结论比不报告更糟：它把排查引向错误方向。
+    if (cls.externalLike.length) {
+      console.log('  ⚠ 这些更像是"本工具被真的使用了"产生的，而不是测试：' + cls.externalLike.join(', '));
+      console.log('     （GUI 启动、健康检查、定时任务、人工发布都会写它们；测试通常不碰）');
+    }
+    if (cls.testLike.length) {
+      console.log('  ⚠ 这些是引擎在测试过程中会写的文件：' + cls.testLike.join(', ') +
+        ' —— 若重跑仍出现，基本可确认是某个套件漏了隔离');
+    }
+    console.log('  排查顺序：① 单独重跑 node test/all.js 看是否复现；');
+    console.log('           ② 不复现 → 确认期间是否有外部程序在使用本工具（GUI / 定时任务）；');
+    console.log('           ③ 复现 → 按上面的文件名定位到具体套件。');
+    console.log('  无论哪种原因都不要放宽这条断言：它是"测试绝不碰用户数据"的最后一道守卫。');
   }
 }
 
