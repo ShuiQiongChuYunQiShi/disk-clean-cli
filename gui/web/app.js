@@ -80,6 +80,7 @@ var I18N = {
     'home.sub': '扫描磁盘，获取智能建议，一键安全清理缓存与大文件。',
     'home.drives': '选择要扫描的磁盘', 'home.exclude': '排除路径（分号分隔，可选）',
     'home.scanBtn': '开始扫描', 'home.statTotal': '总大小', 'home.statFiles': '文件',
+    'home.generatedAt': '生成时间', 'home.reportStale': '报告已过期，建议重新扫描',
     'home.statDirs': '目录', 'home.statEmpty': '空目录', 'home.statDur': '耗时',
     'home.categories': '类别分布',
     'confirm.scanTitle': '确认扫描范围', 'confirm.scanHint': '扫描只读，不删除任何文件。',
@@ -115,6 +116,7 @@ var I18N = {
     'home.sub': 'Scan your disks, get smart suggestions, clean caches and large files with one click.',
     'home.drives': 'Select drives to scan', 'home.exclude': 'Exclude paths (; separated, optional)',
     'home.scanBtn': 'Start Scan', 'home.statTotal': 'Total', 'home.statFiles': 'Files',
+    'home.generatedAt': 'Generated', 'home.reportStale': 'Report is stale, rescan recommended',
     'home.statDirs': 'Dirs', 'home.statEmpty': 'Empty Dirs', 'home.statDur': 'Duration',
     'home.categories': 'Categories',
     'confirm.scanTitle': 'Confirm scan scope', 'confirm.scanHint': 'Scan is read-only; no files will be deleted.',
@@ -328,17 +330,25 @@ function pollScan(jobId) {
     currentJobId = null;
     setProgress(100, t('scan.finish'));
     if (j.report && j.report.summary && j.report.summary.status === 'cancelled') toast(t('msg.scanCancelled'), '');
-    renderReport(j.report);
+    renderReport(j.report, j.provenance);
   });
 }
 
-function renderReport(rep) {
+function renderReport(rep, prov) {
   $('homeReport').classList.remove('hidden');
   var s = rep.summary || {};
   var rangeTxt = (s.roots || []).join('、') || '—';
   var odNote = (s.dupScan && s.dupScan.cloudSyncSkipped) ? '<div class="notice" style="margin:6px 0">☁️ OneDrive 云端文件 ' + s.dupScan.cloudSyncSkipped + ' 个未参与查重与清理（避免触发云端下载与删除）</div>' : '';
   $('scanRange').innerHTML = '<span class="muted">扫描范围：</span>' + esc(rangeTxt) +
     (s.status === 'cancelled' ? ' <span class="badge-warn">' + esc(t('msg.cancelledBadge')) + '</span>' : '') + odNote;
+  // T2：报告出处。界面此前只显示范围、不显示生成时间——用户截个图给别人看时，
+  // 对方无法判断这份报告是什么时候扫的。时间格式由 lib/report.js 统一算好，
+  // 前端只负责渲染，避免三处各自格式化。
+  if (prov && prov.generatedLocal) {
+    $('scanRange').innerHTML += '<div class="muted" style="margin-top:4px">' +
+      esc(t('home.generatedAt') + '：' + prov.generatedLocal + '（' + prov.ageText + '）') +
+      (prov.stale ? ' <span class="badge-warn">' + esc(t('home.reportStale')) + '</span>' : '') + '</div>';
+  }
   $('statTotal').textContent = fmtBytes(s.totalBytes);
   $('statFiles').textContent = s.totalFiles || 0;
   $('statDirs').textContent = s.totalDirs || 0;

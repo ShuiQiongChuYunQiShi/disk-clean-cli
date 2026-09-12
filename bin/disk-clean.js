@@ -133,6 +133,10 @@ async function cmdScan(o) {
   console.log('  根目录   : ' + (s.roots || []).join(', '));
   console.log('  总大小   : ' + col(C.bold, fmtBytes(s.totalBytes)));
   console.log('  文件     : ' + (s.totalFiles || 0) + '  目录: ' + (s.totalDirs || 0) + '  空目录: ' + (s.emptyDirs || 0));
+  // T2：报告是全局单例，会一直被下一次扫描覆盖。把生成时间打在输出里，
+  // 用户才可能意识到自己手里这份是新是旧（clean/organize 的候选就取自"最近报告"）。
+  const prov = require('../lib/report.js').describe(rep);
+  console.log('  生成时间 : ' + (prov.generatedLocal || '未知') + '（' + prov.ageText + '）');
   console.log('  报告     : ' + reportPath);
   console.log('  Markdown : ' + audit.mdFile());
   printSuggestSummary(rep);
@@ -179,7 +183,16 @@ async function cmdReport(o) {
   const rep = audit.readJson(p);
   if (!rep) return fail('无法读取报告: ' + p + '（请先运行 scan）');
   const s = rep.summary || {};
+  const prov = require('../lib/report.js').describe(rep);
   console.log(col(C.cyan, '── 磁盘分析报告 ──'));
+  // T2：终端此前完全不显示生成时间（Markdown 里有、终端里没有，两者还不一致）。
+  // 用户可能拿着三天前的报告做清理决策，界面上看不出来。这里把出处补齐。
+  if (prov.generatedLocal) {
+    console.log('  生成时间 : ' + prov.generatedLocal + '（' + prov.ageText + '）' +
+      (prov.stale ? '  ' + col(C.yellow, '⚠ 已超过 ' + prov.staleHours + ' 小时，建议重新扫描') : ''));
+  } else {
+    console.log('  生成时间 : ' + col(C.yellow, '未知（该报告未记录生成时间）'));
+  }
   console.log('  根目录   : ' + (s.roots || []).join(', '));
   console.log('  总大小   : ' + col(C.bold, fmtBytes(s.totalBytes)) + '  文件: ' + (s.totalFiles || 0) + '  目录: ' + (s.totalDirs || 0));
   if (rep.category && rep.category.length) {

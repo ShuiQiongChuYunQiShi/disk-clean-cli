@@ -24,6 +24,7 @@ const suites = [
   'docs-consistency.js',
   'build-fingerprint.js',
   'approval-gate.js',
+  'report-provenance.js',
 ];
 
 let failed = 0;
