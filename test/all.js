@@ -27,6 +27,7 @@ const suites = [
   'report-provenance.js',
   'report-history.js',
   'category-coverage.js',
+  'capability-matrix.js',
 ];
 
 let failed = 0;
