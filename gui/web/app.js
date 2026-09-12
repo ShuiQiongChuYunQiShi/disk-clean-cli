@@ -1146,3 +1146,11 @@ function renderAudit() {
 /* ---------- boot ---------- */
 applyI18n();
 loadDrives();
+
+// 补能力矩阵 §3 第 2 项：`/api/report` 端点一直存在，但前端从不调用它——
+// 于是打开界面看不到上一次扫描的结果，只有刚扫完那一次才显示。
+// 而报告是全局单例、每次扫描覆盖，"上次扫出什么"恰恰是最常见的使用场景。
+// 没有报告是正常状态（首次使用），所以静默忽略失败，不弹提示打扰用户。
+api('/api/report').then(function (j) {
+  if (j && j.report) renderReport(j.report, j.provenance);
+}).catch(function () { /* 尚无报告：正常 */ });
