@@ -47,7 +47,8 @@ $manifestPath = Join-Path $root "disk-clean.config.json"
 if (-not (Test-Path $manifestPath)) { Fail "missing disk-clean.config.json" }
 $manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $repo = $manifest.repo
-$apiHeaders = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "dsh"; Accept = "application/vnd.github+json" }
+# NOTE: $apiHeaders is built later, right after the credential block. Building it here
+# would capture an empty GH_TOKEN whenever the value comes from the credentials file.
 
 # Asset paths are declared once, in the manifest, with a ${version} placeholder.
 function ManifestPath($asset) { return ($asset.path -replace '\$\{version\}', $ver) }
@@ -106,11 +107,43 @@ foreach ($doc in @("docs\RELEASE_NOTES-v$ver.md", "docs\release-guide-v$ver.md")
 }
 Write-Output "release prerequisites present (notes + guide)"
 
-# Credentials are checked AFTER the approval gate on purpose: "should this be
-# released" comes before "is the toolchain able to release it". Reversed, a missing
-# token reports as a credential problem and the human never learns that the real
-# blocker is the missing approval.
-if (-not $env:GH_TOKEN) { Write-Error "GH_TOKEN not set"; exit 1 }
+# Credentials: process env first, then ~/.disk-clean/credentials.json.
+# This block deliberately sits AFTER the approval gate: "should this be released"
+# comes before "is the toolchain able to release it". Reversed, a missing token
+# reports as a credential problem and nobody learns the real blocker.
+# The file fallback is not a convenience, it is required. Windows user-scope
+# environment variables are snapshotted when a process starts, so setting one does
+# not reach an already-running session or anything it spawns. Verified: right after
+# [Environment]::SetEnvironmentVariable(...,'User'), a child of the running session
+# still sees an empty $env:GH_TOKEN - which is how "I already set it" turns into a
+# repeating false alarm.
+function Resolve-Credential([string]$name) {
+  $v = [Environment]::GetEnvironmentVariable($name, 'Process')
+  if ($v) { return $v }
+  $cf = Join-Path $HOME '.disk-clean\credentials.json'
+  if (Test-Path $cf) {
+    try {
+      $j = Get-Content $cf -Raw -Encoding UTF8 | ConvertFrom-Json
+      $p = $j.$name
+      if ($p) { return [string]$p }
+    } catch { return $null }
+  }
+  return $null
+}
+
+if (-not $env:GH_TOKEN) { $env:GH_TOKEN = Resolve-Credential 'GH_TOKEN' }
+if (-not $env:GH_TOKEN) {
+  Fail ("GH_TOKEN is not available.`n" +
+        "  node scripts/dev.js credentials import   (import User-scope env vars into ~/.disk-clean/credentials.json)`n" +
+        "  or set GH_TOKEN in this shell.")
+}
+# ~/.npmrc references ${NPM_TOKEN}, so the value must be in this process's environment
+# for the npm publish step to authenticate. Injected here rather than exported globally:
+# npm reads the file, and this keeps the secret out of a machine-wide variable.
+if (-not $env:NPM_TOKEN) { $env:NPM_TOKEN = Resolve-Credential 'NPM_TOKEN' }
+
+# Built only now, so it always carries a real token regardless of which source it came from
+$apiHeaders = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "dsh"; Accept = "application/vnd.github+json" }
 
 # ---------- 1) Preflight: repo reachable with this token ----------
 Write-Output "==> 1/7 preflight..."

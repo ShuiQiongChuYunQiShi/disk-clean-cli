@@ -634,7 +634,32 @@ checksums.txt           （含两项 sha256/size/version/**commit** 行，发布
     容易误判成别的原因。另：token 创建页的 **Organizations** 区块
     **只管组织成员/团队设置、明确不授予发包权限**，应设为 `No access`——
     把它设成别的值会弹"必须选择一个组织"，与发包毫无关系。
-    存放建议：token 放环境变量，`~/.npmrc` 写 `_authToken=${NPM_TOKEN}`，不落明文文件。
+    存放建议：token 放环境变量，`~/.npmrc` 写 `_authToken=${NPM_TOKEN}`，不落明文仓库文件。
+40. **⚠️ 环境变量设了不等于当前会话能用——所以凭据必须有文件回退**（2026-09-12 实测）：
+    Windows 的用户级环境变量只在**进程启动时**被快照进环境块。
+    用 `[Environment]::SetEnvironmentVariable('GH_TOKEN', $t, 'User')` 写入注册表之后，
+    **已经在运行的宿主进程（编辑器、agent 会话）不会更新，它 spawn 的子进程也读不到**。
+    实测：设置完成、且确认 `GetEnvironmentVariable('GH_TOKEN','User')` 有值之后，
+    同一个会话里跑 `node scripts/dev.js doctor` **仍然报 "GH_TOKEN 未设置"**——
+    因为进程环境里确实没有。于是产生"我明明设过了"这类反复出现的假警报，
+    而唯一正确的解释（要重启宿主进程）没人知道。
+
+    **本仓库的处理**：凭据有单一入口 `scripts/credentials.js`，**环境变量优先、凭据文件回退**：
+
+    ```powershell
+    node scripts/dev.js credentials import   # 把 User 级环境变量导入 ~/.disk-clean/credentials.json
+    node scripts/dev.js credentials show     # 看状态（有/无、来源、长度）——永不回显内容
+    ```
+
+    - 凭据文件 `~/.disk-clean/credentials.json` 在用户目录，**永不入库**，也不该出现在任何提交里。
+    - `publish-release.ps1` 走同一个入口（PS 侧读同一个 JSON），并在进程内导出
+      `$env:GH_TOKEN` / `$env:NPM_TOKEN`——后者是必需的，因为 `~/.npmrc` 用 `${NPM_TOKEN}` 取值，
+      而 npm 是另一个进程。
+    - **顺序坑**：`$apiHeaders`（Bearer 头）必须在凭据解析**之后**构造，否则走文件回退时会捕获到
+      一个空 token，后续所有 API 调用都退化成匿名请求。
+    - 换 token 之后记得重新 `credentials import`，否则脚本仍在用旧值。
+    - 测试守着这些规则（`test/cli-and-config.js` 的凭据组）：环境变量优先、只更新一个键不抹掉另一个、
+      **`describe()` 不得泄露内容**、文件损坏要如实报错而不是假装"没设置"。
 39. **`npm publish` 的规范化警告要清干净**：`bin` 路径写 `./x.js` 与 `repository.url`
     缺 `git+` 前缀都会让 npm 在每次发布时打印 `was cleaned` / `was normalized`
     （`bin` 那条连官方文档示例都会触发，见 npm/cli#7302）。

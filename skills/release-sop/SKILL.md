@@ -52,7 +52,15 @@ npm 包：`disk-clean`（两个 bin：`disk-clean` 与 `disk-clean-mcp`）。
   发布前用 `node scripts/fingerprint.js check` 断言"制品 == 源码"（详见下方 C）。
 
 ### C. GitHub 上传与**发布门禁**（v0.7.1 起为硬性）
-- 认证：fine-grained PAT 用 `$env:GH_TOKEN`（`gh auth login --with-token` 报 401）；
+- 认证：fine-grained PAT 需 **Contents: Read and write**（`gh auth login --with-token` 报 401）。
+  **凭据统一走 `scripts/credentials.js`：环境变量优先，回退 `~/.disk-clean/credentials.json`。**
+  为什么需要文件回退：Windows 用户级环境变量只在进程启动时快照，设完之后已经在运行的
+  会话（及其子进程）读不到，于是反复出现"我明明设过了，脚本还说没设"（实测确认）。
+  ```powershell
+  node scripts/dev.js credentials import   # 把 User 级环境变量导入凭据文件（换 token 后要重跑）
+  node scripts/dev.js credentials show     # 看状态；永不回显内容
+  ```
+  凭据文件在用户目录、**永不入库**；`~/.npmrc` 用 `${NPM_TOKEN}` 引用它。
   token 不能建仓库时列出选项让用户选，不卡住。
 - 提交：英文 message；本地全量回归 → bump → commit → tag → Release 说明 → SHA256，GitHub 只搬运。
 - **审批门禁（不可绕过）**：`publish-release.ps1` 的第 0 步是

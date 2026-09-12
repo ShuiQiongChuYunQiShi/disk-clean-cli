@@ -62,6 +62,58 @@ function runCli(args, home) {
       'T4 retention.reports 已实现，不应再登记为未接线');
     n++;
 
+    // ============ 凭据入口：环境变量优先、文件回退、永不回显 ============
+    // 起因（实测）：Windows 用户级环境变量只在进程启动时快照，设好之后已经在运行的
+    // 会话（及其 spawn 的子进程）读不到，于是反复出现"我明明设过了，脚本还说没设"。
+    // 凭据文件就是为了消掉这个问题，所以它的解析规则必须有测试守着。
+    {
+      const cred = require('../scripts/credentials.js');
+      const credFile = cred.credentialsFile();
+      const savedEnv = process.env.GH_TOKEN;
+      delete process.env.GH_TOKEN;
+      try {
+        assert(!fs.existsSync(credFile), '隔离 HOME 下不应已有凭据文件（否则测试会污染真实凭据）');
+        assert(!cred.ghToken().value, '没有凭据时应返回空值');
+        assert(!cred.describe().keys.GH_TOKEN.present, 'describe 应如实报"未设置"');
+
+        // 写入后能读回，来源标记为 file
+        const saved = cred.save({ GH_TOKEN: 'gh-test-value', NPM_TOKEN: 'npm-test-value' });
+        assert(saved.ok, 'save 应成功：' + saved.error);
+        assert(cred.ghToken().source === 'file' && cred.ghToken().value === 'gh-test-value',
+          '应从凭据文件读回写入的值');
+
+        // 环境变量优先（CI 与临时覆盖依赖这一条）
+        process.env.GH_TOKEN = 'from-env';
+        assert(cred.ghToken().source === 'env' && cred.ghToken().value === 'from-env',
+          '环境变量必须优先于凭据文件');
+        delete process.env.GH_TOKEN;
+        assert(cred.ghToken().source === 'file', '删掉环境变量后应回落到凭据文件');
+
+        // 只更新一个键不得抹掉另一个（否则换 GH token 会把 npm 一起清空）
+        cred.save({ GH_TOKEN: 'gh-test-2' });
+        assert(cred.npmToken().value === 'npm-test-value', 'save 不应抹掉未传入的键');
+
+        // describe 用于 doctor 显示状态，绝不能泄露内容
+        const desc = JSON.stringify(cred.describe());
+        assert(desc.indexOf('gh-test-2') < 0 && desc.indexOf('npm-test-value') < 0,
+          'describe 绝不能包含凭据内容：' + desc);
+
+        // 文件损坏时如实报错，而不是假装"没设置"——否则会让人反复设置一个已写坏的文件
+        fs.writeFileSync(credFile, '{ this is not json', 'utf8');
+        const broken = cred.describe();
+        assert(broken.fileError, '凭据文件损坏时应报出解析错误');
+        assert(!broken.keys.GH_TOKEN.present, '损坏时值应为空');
+
+        // 空值不得被当成有效凭据写入
+        fs.unlinkSync(credFile);
+        assert(!cred.save({ GH_TOKEN: '   ', NPM_TOKEN: '' }).ok, '全空输入应拒绝写入');
+      } finally {
+        try { fs.unlinkSync(credFile); } catch (e) { /* ignore */ }
+        if (savedEnv) process.env.GH_TOKEN = savedEnv;
+      }
+    }
+    n++;
+
     // ============ T5：建议行必须显示 title，而不是 [type] type 这种重复 ============
     // 起因：CLI 读的是 `s.label`，而建议对象里的字段名是 `title`（Markdown 与 MCP 都用对了，
     // 只有这一处读错），于是回落到 type，输出了 `[junk-temp] junk-temp`。
@@ -192,7 +244,8 @@ function runCli(args, home) {
     console.log('cli-and-config OK (' + n + ' 组断言：v7-5 blacklist 已删 / v7-6 auditLines 生效 / ' +
       'v7-9 drives 单源+命令 / v7-4 clean stale-large / v7-3 rollback 要求 --yes / ' +
       'v7-2 fs.linkSync / v7-7 双份副本上报 / ' +
-      'T4 junkRules+organizeRules 已删且不得卷土重来 / T5 建议显示 title 而非 [type] type)');
+      'T4 junkRules+organizeRules 已删且不得卷土重来 / T5 建议显示 title 而非 [type] type / ' +
+      '凭据入口（env 优先、文件回退、不回显）)');
   } finally {
     process.env.USERPROFILE = prevHome;
     try { fs.rmSync(home, { recursive: true, force: true, maxRetries: 3 }); } catch (e) { }

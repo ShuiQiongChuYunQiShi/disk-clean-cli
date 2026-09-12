@@ -101,28 +101,45 @@ function doctor() {
   rec(ghCli ? 'ok' : 'warn', 'gh CLI', ghCli || '未在默认路径找到',
     ghCli ? null : '发布 GitHub Release 需要（不发布可忽略）');
 
-  const ghToken = process.env.GH_TOKEN;
-  if (!ghToken) {
-    rec('bad', 'GH_TOKEN', '未设置', 'fine-grained PAT 写入环境变量；需 Contents: Read and write');
+  // 凭据来源统一走 scripts/credentials.js：环境变量优先，回退 ~/.disk-clean/credentials.json。
+  // 需要这个回退是因为 Windows 用户级环境变量只在进程启动时快照——设完之后，
+  // 已经在运行的会话（及其 spawn 的子进程）读不到，于是反复出现"设过了却还说没设"。
+  const cred = require('./credentials.js');
+  const sourceText = (s) => s === 'env' ? '环境变量' : (s === 'file' ? '凭据文件' : '未设置');
+  const credState = cred.describe();
+  if (credState.fileError) {
+    rec('bad', '凭据文件', credState.file + ' 解析失败：' + credState.fileError,
+      '修好或删掉该文件；它坏了会让 doctor 显示"未设置"，而其实你早就设过了');
+  }
+
+  const ghToken = cred.ghToken();
+  if (!ghToken.value) {
+    rec('bad', 'GH_TOKEN', '未设置',
+      '设置一次即可：node scripts/dev.js credentials import（从 User 级环境变量导入到 ' +
+      cred.credentialsFile() + '），或直接设环境变量 GH_TOKEN');
   } else {
     // 用 API 实测而不是只查存在性——本仓库踩过"token 存在但失效"
     const probe = run(process.execPath, ['-e',
       'fetch("https://api.github.com/repos/ShuiQiongChuYunQiShi/disk-clean-cli",{headers:{Authorization:"Bearer "+process.env.GH_TOKEN,"User-Agent":"dsh"}}).then(r=>{console.log(r.status);process.exit(r.ok?0:1)}).catch(e=>{console.log("ERR");process.exit(1)})'
-    ], { timeout: 30000 });
+    ], { timeout: 30000, env: { GH_TOKEN: ghToken.value } });
     const ok = probe.code === 0;
     rec(ok ? 'ok' : 'bad', 'GH_TOKEN 有效性',
-      ok ? '可读取目标仓库' : 'HTTP ' + probe.out.trim() + '（401=失效，403=缺 Contents 写权限）',
-      ok ? null : '重新生成 fine-grained PAT，权限需含 Contents: Read and write');
+      (ok ? '可读取目标仓库' : 'HTTP ' + probe.out.trim() + '（401=失效，403=缺 Contents 写权限）') +
+      '（来源：' + sourceText(ghToken.source) + '）',
+      ok ? null : '重新生成 fine-grained PAT，权限需含 Contents: Read and write；' +
+        '换新 token 后跑 node scripts/dev.js credentials import 更新凭据文件');
   }
 
-  const npmToken = process.env.NPM_TOKEN;
-  if (!npmToken) {
-    rec('bad', 'NPM_TOKEN', '未设置', 'npm 粒度 token 写入环境变量（~/.npmrc 用 ${NPM_TOKEN} 引用）');
+  const npmToken = cred.npmToken();
+  if (!npmToken.value) {
+    rec('bad', 'NPM_TOKEN', '未设置',
+      '设置一次即可：node scripts/dev.js credentials import（~/.npmrc 用 ${NPM_TOKEN} 引用它）');
   } else {
-    const probe = run('npm', ['whoami'], { timeout: 40000, shell: true });
+    // npm 通过 ~/.npmrc 的 ${NPM_TOKEN} 取值，所以必须把值注入到 npm 子进程的环境里
+    const probe = run('npm', ['whoami'], { timeout: 40000, shell: true, env: { NPM_TOKEN: npmToken.value } });
     const ok = probe.code === 0 && probe.out.trim() && !/E401|Unauthorized/.test(probe.out);
     rec(ok ? 'ok' : 'bad', 'NPM_TOKEN 有效性',
-      ok ? '已认证为 ' + probe.out.trim() : '认证失败（401）',
+      (ok ? '已认证为 ' + probe.out.trim() : '认证失败（401）') + '（来源：' + sourceText(npmToken.source) + '）',
       ok ? null : 'token 失效或权限不足：Packages and scopes 需选 Read and write (publish and stage)');
   }
 
@@ -728,6 +745,59 @@ function releaseGuide(version, from, to, force) {
   return 0;
 }
 
+// ---------------------------------------------------------------- credentials
+// 凭据的查看与导入。**永不回显凭据内容**——只回答"有没有、来自哪里、多长"。
+// 存在的理由：Windows 用户级环境变量只在进程启动时快照，把它设好之后，
+// 已经在运行的会话及其子进程仍然读不到（实测确认），于是"我明明设过了"成了
+// 反复出现的困惑。凭据文件（~/.disk-clean/credentials.json）把这件事一次解决，
+// 且文件只在用户目录、永不入库。
+function credentialsCmd(sub) {
+  const cred = require('./credentials.js');
+  if (!sub || sub === 'show') {
+    const d = cred.describe();
+    console.log(C.bold + '\n\u25b6 发布凭据状态' + C.reset + C.dim + '（只显示是否有 / 来源 / 长度，不显示内容）' + C.reset + '\n');
+    console.log('  凭据文件: ' + d.file + (d.fileExists ? C.dim + '（存在）' + C.reset : C.dim + '（不存在）' + C.reset));
+    if (d.fileError) console.log('  ' + BAD + ' 凭据文件解析失败：' + d.fileError);
+    for (const k of cred.KEYS) {
+      const s = d.keys[k];
+      const src = s.source === 'env' ? '环境变量' : (s.source === 'file' ? '凭据文件' : '—');
+      console.log('  ' + (s.present ? OK : BAD) + ' ' + k.padEnd(12) +
+        (s.present ? src + '，长度 ' + s.length : C.yellow + '未设置' + C.reset));
+    }
+    console.log('');
+    console.log(C.dim + '  优先级：环境变量 > 凭据文件（环境变量是每进程的，适合 CI 与临时覆盖）' + C.reset);
+    console.log(C.dim + '  导入/更新：node scripts/dev.js credentials import' + C.reset);
+    return 0;
+  }
+  if (sub === 'import') {
+    const r = cred.importFromUserEnv();
+    if (!r.ok) return fail(r.error);
+    console.log(OK + ' 已从 User 级环境变量导入 ' + r.keys.join(' / ') + ' → ' + r.file);
+    console.log(C.dim + '  之后即使宿主进程没刷新环境变量，脚本也能读到这些凭据' + C.reset);
+    return 0;
+  }
+  if (sub === 'set') {
+    const r = cred.save({ GH_TOKEN: argOf('gh', ''), NPM_TOKEN: argOf('npm', '') });
+    if (!r.ok) return fail(r.error);
+    console.log(OK + ' 已写入 ' + r.keys.join(' / ') + ' → ' + r.file);
+    console.log(C.yellow + '  注意：token 通过命令行传递会留在 shell 历史里，优先用 credentials import' + C.reset);
+    return 0;
+  }
+  console.log([
+    'disk-clean 发布凭据',
+    '',
+    '用法: node scripts/dev.js credentials <show|import|set>',
+    '',
+    '  show     显示凭据状态（有 / 无、来自环境变量还是凭据文件、长度）；不回显内容',
+    '  import   把 User 级环境变量 GH_TOKEN / NPM_TOKEN 导入 ~/.disk-clean/credentials.json',
+    '  set      直接写入：--gh <token> --npm <token>（命令行会留痕，仅在无法用 import 时使用）',
+    '',
+    '为什么要凭据文件：Windows 用户级环境变量只在进程启动时快照，设好之后已经在运行的',
+    '会话（及其子进程）读不到，于是反复出现"设过了却还说没设"。',
+  ].join('\n'));
+  return 1;
+}
+
 // ---------------------------------------------------------------- main
 const cmd = process.argv[2];
 if (cmd === 'doctor') process.exit(doctor());
@@ -735,6 +805,7 @@ else if (cmd === 'verify') process.exit(verify());
 else if (cmd === 'analyze') process.exit(analyze(argOf('from', null), argOf('to', null), hasFlag('json')));
 else if (cmd === 'changelog') process.exit(changelog(argOf('from', null), argOf('to', null)));
 else if (cmd === 'release-guide') process.exit(releaseGuide(argOf('version', null), argOf('from', null), argOf('to', null), hasFlag('force')));
+else if (cmd === 'credentials') process.exit(credentialsCmd(process.argv[3]));
 else {
   console.log([
     'disk-clean 研发/发布入口（不随 npm 包与 exe 发布）',
@@ -747,6 +818,7 @@ else {
     '  analyze        净变更行数与 S/M/L 分级（--from <ref> --to <ref> --json）',
     '  changelog      从 git log 生成 CHANGELOG 分类骨架（--from <ref> --to <ref>）',
     '  release-guide  生成本次发版指南（--version <v> --from <ref> --force）',
+    '  credentials    发布凭据：show | import | set（不回显内容）',
     '',
     '配套脚本:',
     '  scripts/approval.js     发布审批门禁（人批准，脚本校验）',
