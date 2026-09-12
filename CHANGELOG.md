@@ -9,6 +9,57 @@
 > 且没有 MCP server）。**0.6.0 已于 2026-09-11 发布到 npm**，`dist-tags.latest` 已更新，
 > `npx -y disk-clean mcp` 亦经端到端验证可用。
 
+## [0.7.1] - 2026-09-12
+
+> 主题：**可信数据与脚本级门禁**——不做新功能。上半批把"流程"从文档搬进脚本
+> （发布审批、制品指纹、文档一致性守门），下半批修掉"报告不可信"与"测试污染用户数据"这两类问题。
+> 详见 `docs/RELEASE_NOTES-v0.7.1.md`、`docs/PRODUCT-REVIEW.md`、`docs/SOP-UPGRADE-PLAN.md`。
+
+### Added
+- **`disk-clean build-info`**：输出本构建的身份 JSON（版本 / commit / 是否脏树 / 构建时间）。
+  单文件 exe 因此能自证"由哪个提交打出"，用户下载后可拿它核对发布页上的 `commit=` 字段。
+- **报告历史（`report --history`）**：每次扫描自动归档一份到 `~/.disk-clean/reports/`，
+  只保留最近 N 份（`retention.reports`，默认 30）；归档为 gzip（磁盘清理工具不该为存历史
+  自己吃掉几百 MB），读取时自动解压。**该配置项从更早版本就写在默认配置里，但从未被任何代码读取**
+  ——本版才真正实现它。
+- **报告溯源**：报告写入 `generatedAt` 与工具版本；`scan` / `report` 的终端输出、MCP 的
+  `disk_scan` / `disk_report`（新增 `provenance` 字段）、GUI 界面**都会显示生成时间与范围**，
+  超过 24 小时给出"建议重新扫描"提示。此前终端完全不显示生成时间（Markdown 有、两者还不一致），
+  而 `clean` / `organize` 的候选路径恰恰取自"最近报告"。
+- 研发/发布工具：`scripts/approval.js`（发布审批门禁）、`scripts/fingerprint.js`（制品指纹断言）、
+  `disk-clean.config.json`（发布身份与产物清单唯一事实源）、
+  `scripts/dev.js analyze | changelog | release-guide`。
+- 测试 12 → **17 个套件**（新增 `docs-consistency` / `build-fingerprint` / `approval-gate` /
+  `report-provenance` / `report-history`），另加 2 项 runner 自检，合计 **19 项检查**。
+
+### Changed
+- **CLI 建议行现在显示标题**：此前读的是不存在的字段，输出成 `[junk-temp] junk-temp`；
+  现为 `[junk-temp] 清理临时与缓存文件`。README 里记录的示例
+  （`[organize-folders] 目录整理建议`）一直是对的——错的是代码。
+- **英文 README 顶部新增语言说明**：CLI 控制台输出与建议标题是中文，`--lang` 只切换报告的
+  **结构性标签**。此前英文 README 的措辞让人以为存在英文界面。
+- **CI 不再在 push tag 时自动创建 Release**：此前 `git push --tags` 会发布一个未经审批、
+  且只有引擎（没有 GUI 安装器）的半成品 Release——等于绕过发布审批。现在 CI 只构建、断言指纹、
+  上传 workflow artifact；发布只能由 `scripts/publish-release.ps1` 完成（它内部要求人工审批）。
+- 报告 Markdown 与终端现在使用**同一个**生成时间字段（此前 MD 用 `summary.scannedAt`、终端根本没有）。
+- 定时扫描不再自己往 `reports/` 写第二份报告，改由引擎统一归档（否则同一时刻会出现两份重复归档）。
+
+### Fixed
+- **测试会覆盖用户真实数据（P0）**：15 个套件里有 12 个直接读写用户真实的 `~/.disk-clean/`。
+  实际后果三条都发生过：用户的扫描报告被覆盖成测试临时树的扫描结果；审计日志被污染
+  （审计是"工具到底动过什么"的证据，实测多数记录来自测试）；测试文件被真的丢进用户回收站。
+  现全部隔离到临时目录，并加两层守卫——静态（新增套件漏隔离则整体失败）与运行时
+  （跑测试前后对真实状态目录做**内容哈希**比对，新增/修改/删除都会被抓到）。
+- **报告没有历史、无法回溯**：报告是全局单例，每次扫描直接覆盖，此前无法回答
+  "昨天那 40 GB 是哪些目录"。
+
+### Removed
+- **`config.junkRules` / `config.organizeRules`**：两个从未被引擎读取、却在 MCP 工具描述里被
+  当成已有能力承诺的配置项。v0.7.0 处理过同类的 `blacklist`，但当时是**逐项修而不是按类别修**，
+  这两项因此漏网并在同一版又被承诺了一遍。现按"要么实现、要么从描述里删掉"删除，
+  并加了类别级守门（已删除的字段不得在 README 或任何工具描述里重新出现）。
+- **`config.version`**：从未被读取，且与应用版本号同名，容易被误认为能改版本号。
+
 ## [0.7.0] - 2026-09-11
 
 > 主题：**质量周**——不做新功能，清除"工具在骗你"的三类问题（假承诺 / 口径不一 / 夸大数字）。
