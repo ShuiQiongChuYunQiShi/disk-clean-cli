@@ -83,20 +83,29 @@
 | `CHANGELOG.md` 已补本版条目 | ✅ | `[0.7.1]` 段 |
 | 环境自检 | ⚠️ **2 项阻塞** | `node scripts/dev.js doctor` → `GH_TOKEN 未设置`、`NPM_TOKEN 未设置`（其余全绿）。**发布前必须恢复** |
 | 发布审批 | ☐ | 发布前由人执行 `node scripts/approval.js confirm --version 0.7.1 --by "<名字>"` |
-| CI 最新 run 绿 | ☐ | 推送后填写 |
+| CI 最新 run 绿 | ✅ | `build` @ `66ed674` **success** — [run 34680860553](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/actions/runs/34680860553)（发布时须对本 tag 的 run 重新确认） |
 
 > `dev verify` 打印的"跳过"步骤不计入通过，必须数清楚。本次 7 步中 0 跳过，
 > 是因为 exe 已按最终提交重建；若 `dist/` 无产物，指纹与端到端两步会被显式标为 skip 并在汇总里列出。
 
-## 附：GUI 侧未验证项（如实记录）
+## 附：GUI 侧验证状态（如实记录）
 
-本版**未改动 GUI 产品行为**（仅前端新增一行生成时间渲染 + 两个 i18n 键），
-但变更级别为 L，按要求仍需 GUI 验收。截至生成本指南时**以下两项未做**：
+本版**未改动 GUI 产品行为**（仅前端新增一行生成时间渲染 + 两个 i18n 键），但变更级别为 L，
+按要求仍需 GUI 验证。
 
-- ☐ GUI 安装器重建：`powershell -File scripts\build-installer.ps1`
-- ☐ 静默安装 + 启动 + 扫描 + 生成时间显示的界面验收
+- ✅ **安装器构建通过**：`powershell -File scripts\build-installer.ps1` →
+  `gui\dist\disk-clean-setup-0.7.1.exe`（25.9 MB），dotnet publish + make-icon + 引擎 SEA +
+  ISCC 全链无报错。
+- ☐ **静默安装 + 启动 + 扫描 + 生成时间显示的界面验收**：**需人工执行**。
+  这一步会真的往本机安装（Program Files、注册表、快捷方式），不应由自动化脚本擅自执行。
+- ⚠️ **构建顺序坑（本版踩过一次，记录以免重犯）**：本版重构了构建链
+  （`build-sea.ps1` 现在调用 `scripts/build-bundle.js` 注入指纹）。安装器内嵌的 `engine.exe`
+  必须是**干净树构建**，否则用户在界面上看到的构建信息会带 `-dirty`。
+  正确顺序是 **先提交全部改动，再跑 `build-installer.ps1`**（它会重建引擎再打包）。
+  首次执行时先跑了安装器、之后还有未提交改动，引擎因此被标成 `dirty=true`，
+  已验证并按其顺序重做。
 
-不要因为"只改了一行前端"就跳过——v0.3.x 那批事故正是"只改了一点"造成的。
+不要因为"只改了一行前端"就跳过 GUI 验收——v0.3.x 那批事故正是"只改了一点"造成的。
 
 ## 三、上线前准备清单
 
