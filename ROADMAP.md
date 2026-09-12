@@ -131,9 +131,11 @@ Commands:
 
 - ✅ 配置文件 `~/.disk-clean/config.json`（或 `--config <file>`）：
   - `exclude`：白名单（永不清理/移动，扫描时跳过）
-  - `blacklist`：黑名单（预留；CLI clean 自动附加候选）
+  - ~~`blacklist`：黑名单（预留；CLI clean 自动附加候选）~~ —— **v0.7.0 已移除**：
+    该字段从未被任何引擎代码读取（配置里写的是"预留"），但 MCP 工具描述一度把它当作
+    已有功能对外承诺，属对调用方的假承诺。本仓库原则：要么实现，要么从描述里删掉。
   - `thresholds`：可调阈值（looseMinBytes/looseMinDays、staleMinBytes/staleMinDays、dupMinBytes）
-  - `retention`：保留策略（审计行数、报告份数）
+  - `retention`：保留策略（审计行数、日志保留份数）——**auditLines 自 v0.7.0 起真正生效**
   - `junkRules` / `organizeRules`：自定义规则（配置结构已就绪，引擎接入 v1.1）
 - ✅ 引擎读取配置（默认值兜底）：`lib/config.js`（deepMerge 默认）+ engine `run()` 加载覆盖阈值与 exclude。
 - ✅ `disk-clean config` 子命令：show / set <json路径> <值> / reset / path。

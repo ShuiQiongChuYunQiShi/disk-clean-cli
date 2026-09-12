@@ -21,6 +21,7 @@ const quotaLib = require('../lib/quota.js');
 const restoreLib = require('../lib/restore.js');
 const i18nLib = require('../lib/i18n.js');
 const guard = require('../lib/guard.js');
+const drivesLib = require('../lib/drives.js');
 
 // ---------- 内部引擎直跑模式（SEA 单文件环境：scan 子进程用 --internal-scan 自我调用） ----------
 if (process.argv[2] === '--internal-scan') {
@@ -244,6 +245,12 @@ async function cmdOrganize(o) {
     }
     console.log(col(C.green, '✔ ' + r.note));
     if (r.failed && r.failed.length) for (const f of r.failed) console.log(col(C.red, '  ✗ ' + f.src + ' → ' + f.dst + ' (' + f.reason + ')'));
+    // v7-7：双份副本必须显式提示——否则用户只看到一条 fail，不知道目标盘上已经多了一份
+    if (r.duplicatedCount) {
+      console.log(col(C.yellow, '  ⚠ ' + r.duplicatedCount + ' 项出现「已复制但源未删除」，两份副本并存：'));
+      for (const d of (r.duplicated || [])) console.log(col(C.yellow, '      ' + d.src + '\n      ' + d.dst));
+      console.log(col(C.gray, '    本工具未自行删除任何一份（以免误删）。确认无误后请手动删除其一。'));
+    }
     return 0;
   }
   if (sub === 'rollback') {
@@ -306,8 +313,14 @@ async function cmdClean(o) {
       // junk-temp 建议只有聚合标签无具体路径；从空目录/明细里选带 temp 段的路径
       paths = safeOnly((rep.emptyDirSample || []).filter(function(p) { return /(\\temp\\|\\tmp\\|\\cache\\|\\prefetch\\|\\thumbcache\\|\\iconcache\\|(^|[\\/])(temp|tmp|cache|prefetch|thumbcache|iconcache)([\\/]|$))/i.test(String(p)) })).slice(0, 200);
       if (paths.length === 0) return fail('未从报告中提取到临时/缓存路径，请显式传入：disk-clean clean junk-temp <path1> <path2> ...');
+    } else if (type === 'stale-large') {
+      // v0.7.0（v7-4）：MCP 的 disk_clean 一直支持 stale-large，CLI 却缺这个分支 ——
+      // 同一个动作两种能力，用户从 CLI 走不通。候选来源是报告的 stale-large 建议明细。
+      for (const s of sugg) if (s.type === 'stale-large') for (const it of (s.items || [])) if (it && it.path) paths.push(it.path);
+      paths = safeOnly(paths);
+      if (paths.length === 0) return fail('未从报告中提取到陈旧大文件候选，请显式传入：disk-clean clean stale-large <path1> <path2> ...');
     } else {
-      return fail('未知清理类型: ' + type + '（junk-temp | empty-dirs | duplicates | recycle-bin）');
+      return fail('未知清理类型: ' + type + '（junk-temp | empty-dirs | duplicates | stale-large | recycle-bin）');
     }
   }
   const dryRun = o.flags['dry-run'] || o.flags.dryRun;
@@ -324,6 +337,14 @@ async function cmdClean(o) {
   if (!r.ok) return fail(r.error);
   if (r.dryRun) {
     console.log(col(C.yellow, r.note));
+    // v7-4 附带：dry-run 是破坏性操作唯一的安全闸门，只说"将清理 N 个路径"却不说是哪些，
+    // 用户无从判断。MCP 侧一直返回 paths 清单，CLI 此前没有 —— 这里补齐（与 MCP 一致）。
+    const list = r.paths || [];
+    if (list.length) {
+      console.log(col(C.cyan, '  将处理以下 ' + list.length + ' 项：'));
+      for (const p of list.slice(0, 20)) console.log('    ' + p);
+      if (list.length > 20) console.log(col(C.gray, '    … 其余 ' + (list.length - 20) + ' 项见报告'));
+    }
     console.log(col(C.gray, '  确认执行请加 --yes'));
     return 0;
   }
@@ -406,7 +427,14 @@ async function cmdDedup(o) {
   return 0;
 }
 
-async function cmdDedupRollback() {
+async function cmdDedupRollback(o) {
+  // v0.7.0（v7-3）：此前本命令不接收 o、无从检查 --yes，于是
+  // `dedup rollback` 会**无条件执行**（回滚会重新占用磁盘空间），
+  // 而 organize rollback（:252 `dryRun: dryRun || !yes`）与 MCP 的
+  // disk_dedup cmd=rollback（要求 confirm:true）都要求确认 —— 同一动作三种确认模型。
+  // 现统一为：不给 --yes 只预览。注意 organize 侧本来就是对的，本次不动它。
+  const yes = !!o.flags.yes;
+  const dryRun = o.flags['dry-run'] || o.flags.dryRun || !yes;
   // 统一读单一 map（评审 A6）：旧实现只读 map.merged，而 MCP 侧写的是 entries，
   // 于是"AI 合并的文件，CLI 回滚不了"（merged 为空 → 报"没有可回滚记录"）。
   const map = dedupLib.readDedupMap();
@@ -414,6 +442,15 @@ async function cmdDedupRollback() {
   if (entries.length === 0) {
     if (map.entries.length === 0) return fail('没有可回滚的硬链接记录 (' + audit.dedupMapFile() + ')');
     console.log('（记录的硬链接文件都已不存在，无需还原）');
+    return 0;
+  }
+  if (dryRun) {
+    const bytes = entries.reduce(function(a, e) { return a + (e.size || 0) }, 0);
+    console.log(col(C.blue, '预览（dry-run）：将把 ' + entries.length + ' 个硬链接还原为独立副本'));
+    for (const e of entries.slice(0, 10)) console.log('  ' + e.victim);
+    if (entries.length > 10) console.log(col(C.gray, '  … 共 ' + entries.length + ' 个'));
+    if (bytes > 0) console.log('  还原后约重新占用 ' + fmtBytes(bytes) + '（硬链接此前共享同一份数据）');
+    console.log(col(C.gray, '  确认执行请加 --yes'));
     return 0;
   }
   const rr = dedupLib.rollbackHardlinks(entries);
@@ -426,6 +463,25 @@ async function cmdDedupRollback() {
   if (remain.length) dedupLib.writeDedupMap(remain);
   else { try { fs.unlinkSync(audit.dedupMapFile()); } catch (e) { /* ignore */ } }
   console.log(col(C.green, '✔ 已还原 ' + ok + ' 个文件为独立副本，回滚完成。') + (bad ? col(C.yellow, '（' + bad + ' 个失败，已保留记录供重试）') : ''));
+  return 0;
+}
+
+// ---------- 命令: drives（盘符与真实容量） ----------
+// v0.7.0（v7-9）：CLI 此前没有这个命令，而 README/文档多处提到盘符信息 ——
+// 同一能力 MCP(disk_drives) 与 GUI(/api/drives) 都有，只有 CLI 缺。
+// 计算统一走 lib/drives.js（单一事实源），不在这里重算 statfsSync。
+async function cmdDrives() {
+  const drives = drivesLib.list();
+  if (!drives.length) return fail('未发现任何本地盘');
+  console.log(col(C.cyan, '▶ 本地盘容量') + col(C.gray, '（来自卷文件系统统计，与资源管理器一致）'));
+  console.log('');
+  console.log('  ' + col(C.bold, '盘符') + '  ' + col(C.bold, '已用 / 总计').padEnd(26) + col(C.bold, '可用') + '        使用率');
+  for (const d of drives) {
+    const bar = '█'.repeat(Math.round(d.usedPercent / 5)) + '░'.repeat(20 - Math.round(d.usedPercent / 5));
+    const warn = d.usedPercent >= 90 ? col(C.red, '  ⚠ 剩余不足 10%') : '';
+    console.log('  ' + d.drive.padEnd(6) + (d.usedText + ' / ' + d.totalText).padEnd(26) +
+      d.availText.padStart(9) + '  ' + bar + ' ' + String(d.usedPercent).padStart(5) + '%' + warn);
+  }
   return 0;
 }
 
@@ -609,16 +665,17 @@ function help() {
   console.log('  organize apply [file]      执行整理 (默认预览, --yes 执行)');
   console.log('  organize rollback          回滚最后一批整理 (--yes 执行)');
   console.log('  fix-shortcuts <pairs.json> 单独修复指向旧路径的快捷方式');
-  console.log('  clean <type> [paths...]    清理: junk-temp|empty-dirs|duplicates|recycle-bin');
+  console.log('  clean <type> [paths...]    清理: junk-temp|empty-dirs|duplicates|stale-large|recycle-bin');
   console.log('                              (默认预览, --yes 执行; 移入回收站可恢复)');
   console.log('  audit                      查看操作审计日志');
   console.log('  config                     查看/设置规则配置 (show|set|reset|path)');
   console.log('  schedule                   定时扫描: add|run|list|remove (仅扫描+报告, 不做清理)');
   console.log('  mftscan <盘符>             实验: NTFS MFT 直读快速扫描 (需管理员, ~8x 提速)');
+  console.log('  drives                     列出本地盘符与真实容量 (总/已用/可用/使用率)');
   console.log('  health                     磁盘健康检查 (SMART/SSD Wear/温度)');
   console.log('  dedup [roots...]           全盘重复文件检测 (排除系统/程序目录)');
   console.log('      --hardlink             可选: 重复文件转硬链接省空间 (需 --yes, 可回滚)');
-  console.log('  dedup rollback             回滚硬链接合并');
+  console.log('  dedup rollback             回滚硬链接合并 (--yes 执行)');
   console.log('  quota [盘符]               每用户配额分析 (MFT 直读, 需管理员)');
   console.log('  serve --port <p> --token <t> --web <dir>   GUI 引擎 HTTP 服务');
   console.log('  mcp                         MCP Server（stdio，供 AI 客户端调用磁盘工具）');
@@ -690,9 +747,10 @@ async function main() {
       case 'mcp': return await cmdMcp(o);
       case 'mftscan': return await cmdMftScan(o);
       case 'health': return await cmdHealth();
+      case 'drives': return await cmdDrives();
       case 'quota': return await cmdQuota(o);
       case 'dedup': {
-        if (o._[0] === 'rollback') return await cmdDedupRollback();
+        if (o._[0] === 'rollback') return await cmdDedupRollback(o);
         return await cmdDedup(o);
       }
       case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;

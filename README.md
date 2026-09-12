@@ -195,11 +195,12 @@ disk-clean mcp
 | `clean <type> [paths...]` | `junk-temp` \| `empty-dirs` \| `duplicates` \| `recycle-bin`. **Dry-run unless `--yes`.** Items go to the recycle bin (recoverable); only recycle-bin emptying is permanent. |
 | `fix-shortcuts <pairs.json>` | Rewrite `.lnk` files pointing at moved paths (Desktop / Start Menu / Taskbar). |
 | `audit` | Show the JSONL audit log. |
-| `config` | Rules config: whitelist/blacklist, thresholds, retention. |
+| `config` | Rules config: exclude prefixes, thresholds, retention. |
 | `schedule` | Scheduled scans via Windows Task Scheduler. |
 | `mftscan <drive>` | **Experimental:** raw NTFS MFT scan (needs admin) — ~8x faster than directory traversal; parses fragmented $MFT runlists, rebuilds full paths, sizes via alloc/real rule. |
 | `dedup [roots...]` | Full-disk duplicate detection (excludes system/program dirs; head/tail + full-hash strategy). `--hardlink --yes` merges duplicates into hardlinks; `dedup rollback` restores. |
 | `quota [drive]` | Per-user quota analysis via MFT (needs admin): users ranked + per-user Downloads/Documents/Desktop/... breakdown. |
+| `drives` | List local drives with real volume capacity (total / used / free / usage). Same source as the `disk_drives` MCP tool and the GUI drive cards. |
 | `health` | SMART / SSD health: temperature, wear %, power-on hours, read/write errors with a health grade. |
 | `mcp` | Start the **MCP server** (stdio, 12 tools) for DeepSeek Harness / Claude Desktop / Cursor and any other MCP client. stdout carries protocol messages only; diagnostics go to stderr. |
 | `--restore-point` | Add to `clean` / `organize apply` to create a system restore point first (fails gracefully if protection is off). |

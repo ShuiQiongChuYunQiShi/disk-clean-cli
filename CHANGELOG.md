@@ -1,13 +1,59 @@
 # Changelog
 
-> 说明：本文件在 v0.1.0 与 v0.4.0 之间**缺少 0.2.0 / 0.3.0 / 0.3.1 三个版本条目**
-> （只有 tag 与 GitHub Release，没有 CHANGELOG 段落）。这三个版本的实际发布时间见
-> GitHub Releases 与 `docs/RELEASE_NOTES-v0.2.0.md`；补写需基于当时的提交内容，
-> 不要凭印象编造。（补写已列入 `docs/PLAN-v0.7.md` 的 v7-8。）
+> **补记说明（v0.7.0）**：本文件此前在 v0.1.0 与 v0.4.0 之间**缺少 0.2.0 / 0.3.0 / 0.3.1
+> 三个版本条目**（只有 tag 与 GitHub Release）。这三条于 v0.7.0 补写，**已按倒序放在
+> 0.1.0 之前**；依据是 `git log <prev>..<tag>` 的真实提交、当年的 GitHub Release 正文，
+> 以及 `docs/RELEASE_NOTES-v0.2.0.md` —— 不凭印象编造，无据可依的内容一律不写。
 >
 > 另注：npm 渠道曾在 2026-08-25 → 2026-09-11 期间停留在 **0.4.1**（含 v0.6.0 修复的 P0、
 > 且没有 MCP server）。**0.6.0 已于 2026-09-11 发布到 npm**，`dist-tags.latest` 已更新，
 > `npx -y disk-clean mcp` 亦经端到端验证可用。
+
+## [0.7.0] - 2026-09-11
+
+> 主题：**质量周**——不做新功能，清除"工具在骗你"的三类问题（假承诺 / 口径不一 / 夸大数字）。
+> 详见 `docs/RELEASE_NOTES-v0.7.0.md` 与 `docs/PLAN-v0.7.md`。
+
+### Changed
+- **`dedup rollback` 现在需要 `--yes`**（唯一行为变更）：此前无条件执行，而
+  `organize rollback` 与 MCP 的 `disk_dedup cmd=rollback` 都要求确认——同一动作三种确认模型。
+  现统一：无 `--yes` 只预览（列出将还原的项与预计重新占用空间）。
+- `clean` 的 dry-run **现在列出将处理的路径**（此前只说数量，用户无从判断；MCP 侧一直是返回清单的）。
+- `clean` 的类型提示补上 `stale-large`。
+
+### Removed
+- **`config.blacklist`**：该字段从未被任何引擎代码读取，却在 MCP 工具描述里被承诺为
+  "强制清理候选"——等于对调用方（尤其 AI）的假承诺。按本仓库"要么实现、要么从描述里删掉"
+  的原则删除，并同步 README 命令表与 `ROADMAP.md`（标注"从未实现"）。
+
+### Fixed
+- **`retention.auditLines` 不再失效**：此前 `lib/audit.js` 把上限硬编码为 2000，
+  配置里的 5000 写了没人读。现惰性读取配置（改完立即生效），非法值回落 2000。
+- **CLI 缺 `stale-large` 分支**：MCP 的 `disk_clean` 一直支持，CLI 却会报"未知清理类型"。
+- **跨盘移动的"双份副本"不再隐身**：复制成功但删除源失败时，会留下两份副本，
+  而重试被 `COPYFILE_EXCL` 卡成 `EEXIST`，用户只看到一条 fail。现显式识别并上报
+  "已复制但源未删除"，附两份路径，审计标记 `partial`，MCP/GUI 拿到独立的 `duplicated` 列表。
+
+### Added
+- **`disk-clean drives`**：列出本地盘符与真实容量（总/已用/可用/使用率）。
+  实现前先做了**单源化**——查代码发现该能力已有两份实现（`lib/mcp/tools.js` 与 `lib/serve.js`
+  各算一遍 `statfsSync`），若再加第三份就是重犯 A3。故抽出 `lib/drives.js` 作为唯一事实源。
+- `test/cli-and-config.js`（套件 11 → **12**），7 组断言专守本版各项。
+
+### Performance
+- **硬链接合并不再使用 PowerShell**：原实现对每个 victim `spawnSync` 一次（实测 144ms/个，
+  1000 个约 2.4 分钟）。实测 Node 内建 `fs.linkSync` 直接可用（同 inode/nlink=2/共享数据），
+  **0.66ms/个 → 1000 个约 0.7 秒（218x）**。保留 PowerShell 回退以免极少数环境回归。
+- **`dedup` 的文件 `stat` 改为并发**（复用既有 `pool`，并发 16）：1 万文件基准
+  stat 阶段 292ms → 71ms，整体 772ms → 540ms；外推 40 万文件约省 9 秒。
+- 注：锐评原估"上千重复文件需 30–50 分钟"**实为约 2.4 分钟（夸大 ~15 倍）**，
+  本版据此重排了优先级（见 `docs/PLAN-v0.7.md` §1.0）。
+
+### Docs
+- CHANGELOG 补齐 **0.2.0 / 0.3.0 / 0.3.1** 三个版本条目（依据真实提交与当年 Release 正文重写，
+  不凭印象编造），并整理为严格倒序。
+- `lib/mcp/server.js` 的 GBK 编码疑虑（锐评标注为*推测*）经实测**未复现**，
+  结论写入代码注释，以免后人重复排查。
 
 ## [0.6.0] - 2026-09-11
 
@@ -192,6 +238,60 @@
 ### Fixed
 - schtasks 中文输出 GBK 解码；cmd /c 引号包裹；任务入口路径。
 - MFT 记录解析：FILE_NAME 偏移、runlist 符号扩展 32 位溢出、稀疏文件 size 超卷兜底。
+
+## [0.3.1] - 2026-08-16
+
+> GUI 修复迭代，由用户反馈回归触发。依据：`git log v0.3.0..v0.3.1` + 该版 Release 正文。
+
+### Fixed
+- **盘符容量显示错误**：改用 `fs.statfsSync` 读真实卷容量 —— 此前用 `statSync(root).blocks`
+  得到的是**根目录自身占用的块数**（几十 KB，界面上显示约 24KB），与卷容量无关。
+- **默认选择**：首次启动默认只选 `D:` 并记住上次选择（不再默认全选）。
+- **"选中 D 却扫出 2.2TB"**：实为默认全选 + 点击切换导致扫了 C+E+F 三盘合计。
+  新增**扫描前范围确认弹窗**（列出各盘已用/合计/排除路径），报告顶部回显扫描范围。
+- **去重硬链接合并的范围**：不再静默回退到扫描 `C:\`+`D:\`，只复用最近一次主页扫描范围，
+  无报告则明确报错。
+
+### Changed
+- 统一包版本号为 0.3.0 并刷新校验和；`--help` 补上 `serve` 子命令说明。
+
+## [0.3.0] - 2026-08-16
+
+> 第三形态：原生 GUI 桌面应用（WebView2）。依据：`git log v0.2.0..v0.3.0` + 该版 Release 正文。
+> 同期把 DSH 插件预设入仓（该形态已于 v0.5.0 整体删除）。
+
+### Added
+- **原生 GUI 桌面应用**（C# WinForms + WebView2，.NET 8 框架依赖单 exe ~24MB），
+  配 Inno Setup 安装器 `disk-clean-setup-0.3.0.exe`（~26MB）：
+  自动检测 .NET 8 Desktop Runtime / WebView2，缺失时引导官方下载；含开始菜单/桌面快捷方式与卸载器。
+- **引擎 `serve` HTTP 层**（`lib/serve.js`）：仅绑 `127.0.0.1` + Bearer 鉴权，GUI 复用 CLI 引擎。
+- **两级前端 UI**：主页 + 8 个高级 Tab。
+- `README.zh-CN.md`（含语言切换）。
+
+### Docs
+- `docs/RELEASE-PLAYBOOK.md`（可复用制作/发布 SOP）、`docs/PROCESS-REVIEW.md`（全流程复盘）。
+
+## [0.2.0] - 2026-08-16
+
+> 首个功能完整版本（v0.1.0 只有 scan/report/organize/clean/audit 骨架）。
+> 依据：`git log v0.2.0` 的 10 个提交 + `docs/RELEASE_NOTES-v0.2.0.md`。
+
+### Added
+- **MFT 直读快速扫描**（`mftscan <drive>`，需管理员）：解析碎片化 NTFS `$MFT`（runlist、
+  路径重建、alloc/real 尺寸规则）。实测比目录遍历**快约 8 倍**（150 万记录卷：5.5s vs 43.1s），
+  文件数/目录数与遍历一致（99%/100%）。
+- **全盘去重**（`dedup [roots...]`）：head/tail + 全量哈希两阶段，排除系统/程序目录。
+  D 盘实测 **1503 组重复、约 17.3 GB 可释放**。可选 `--hardlink --yes` 合并为硬链接，
+  配 `dedup rollback` 回滚。
+- **每用户配额**（`quota <drive>`，需管理员）：基于 MFT 的用户占用排行 + 子目录明细。
+- **SMART / SSD 健康**（`health`）：温度、寿命 Wear、通电小时、读写错误 + 健康分级。
+- **定时扫描**（`schedule add|run|list|remove`）：Windows 任务计划 + 报告归档。
+- **系统还原点**（`--restore-point`）：破坏性操作前可选创建，系统保护关闭时优雅降级。
+- **i18n 报告**（`--lang en|zh`）：双语 Markdown 报告 + 语言自动检测。
+- **规则配置**（`config`）：阈值、exclude 白名单、保留策略。
+
+### Fixed
+- `bin/package.json` 曾被 GBK 重写破坏，本版修复并验证 exe 内全命令可用。
 
 ## [0.1.0] - 2026-08-16
 

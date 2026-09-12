@@ -10,6 +10,7 @@ const suites = [
   'clean-safety.js',
   'organize-safety.js',
   'safety-gates.js',
+  'cli-and-config.js',
   'serve-integration.js',
   'mcp-protocol.js',
   'dsh-config.js',
