@@ -298,11 +298,55 @@ function runCli(args, home) {
     assert(/duplicatedCount/.test(binSrc), 'v7-7 CLI 应把双份副本提示给用户看');
     n++;
 
+    // ============ T9/T10/T13：范围确认、进度降级、HTML 导出 ============
+    {
+      const runFailT10 = (args) => {
+        try { return { code: 0, out: runCli(args, home) }; }
+        catch (e) { return { code: e.status === null ? -1 : e.status, out: String(e.stdout || '') + String(e.stderr || '') }; }
+      };
+
+      // T10 / E6：多范围扫描必须要求确认（与 GUI 的范围弹窗对等，防误扫）
+      const multi = runFailT10(['scan', tree, home]);
+      assert(multi.code === 1, 'T10 多范围扫描应要求确认（退出 1），实际 ' + multi.code);
+      assert(multi.out.indexOf('将扫描') >= 0, 'T10 应打印将要扫描的范围，实际：' + multi.out);
+      assert(multi.out.indexOf('--yes') >= 0, 'T10 应给出确认方式（--yes），实际：' + multi.out);
+      const single = runCli(['scan', tree, '--report', path.join(tree, 'single.json')], home);
+      assert(single.indexOf('扫描完成') >= 0, 'T10 单范围扫描不应要求确认');
+
+      // T13 / E16：HTML 单文件导出，且必须**转义**报告里的路径与类别名。
+      // 报告数据来自被扫描的磁盘（用户可写），不转义就等于让别人浏览器执行任意脚本。
+      const repFile = path.join(tree, 'html-src.json');
+      fs.writeFileSync(repFile, JSON.stringify({
+        generatedAt: new Date().toISOString(),
+        tool: { name: 'disk-clean', version: 'test' },
+        elapsedMs: 1234,
+        summary: { roots: ['D:\\'], totalBytes: 4096, totalFiles: 2, totalDirs: 1, emptyDirs: 0, status: 'done' },
+        category: [{ label: '<script>alert(1)</script>', bytes: 4096, count: 2 }],
+        uncategorizedTop: [{ ext: 'xyz', bytes: 512 }],
+        suggestions: [],
+        topDirs: [{ path: '<img src=x onerror=alert(2)>', bytes: 4096 }],
+        topFiles: [],
+      }), 'utf8');
+      const htmlOut = runCli(['report', repFile, '--html'], home);
+      const htmlPath = repFile.replace(/\.json$/i, '') + '.html';
+      assert(fs.existsSync(htmlPath), 'T13 应生成 HTML 文件，实际输出：' + htmlOut);
+      const html = fs.readFileSync(htmlPath, 'utf8');
+      assert(html.indexOf('<!DOCTYPE html>') === 0, 'T13 应输出完整 HTML 文档');
+      assert(html.indexOf('disk-clean 报告') >= 0, 'T13 HTML 应含标题');
+      assert(html.indexOf('<script>alert(1)</script>') < 0,
+        'T13 HTML 未转义类别名——那是注入漏洞（数据来自被扫描的磁盘）');
+      assert(html.indexOf('&lt;script&gt;') >= 0, 'T13 应输出转义后的实体');
+      assert(html.indexOf('<img src=x onerror') < 0, 'T13 HTML 未转义路径');
+      assert(html.indexOf('未分类占用 Top') >= 0, 'T13 HTML 应含未分类段落（T6 的缺口可见性）');
+      assert(html.indexOf('http://') < 0 && html.indexOf('https://') < 0,
+        'T13 HTML 必须是自包含单文件（不得引用外部资源）');
+    }
+    n++;
     console.log('cli-and-config OK (' + n + ' 组断言：v7-5 blacklist 已删 / v7-6 auditLines 生效 / ' +
       'v7-9 drives 单源+命令 / v7-4 clean stale-large / v7-3 rollback 要求 --yes / ' +
       'v7-2 fs.linkSync / v7-7 双份副本上报 / ' +
       'T4 junkRules+organizeRules 已删且不得卷土重来 / T5 建议显示 title 而非 [type] type / ' +
-      'T8 错误消息与引导（E1–E5）/ ' +
+      'T8 错误消息与引导（E1–E5）/ T9+T10+T13 范围确认+进度降级+HTML 导出 / ' +
       '凭据入口（env 优先、文件回退、不回显）)');
   } finally {
     process.env.USERPROFILE = prevHome;

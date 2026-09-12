@@ -101,6 +101,29 @@ async function cmdScan(o) {
   if (o.values.config) argv.push('--config', o.values.config);
   if (o.values.lang) argv.push('--lang', o.values.lang);
   argv.push('--report', reportPath, '--progress', progressPath);
+  // ---- E6：扫描前把"将要扫描什么"说清楚 ----
+  // 扫描是只读的，但**范围搞错**的代价很实在：以为在扫 D 盘、实际把 C 盘也遍历了一遍
+  // （整盘遍历可达数分钟），或者反过来以为全覆盖、其实漏了。
+  // GUI 一直有范围弹窗，CLI 此前只打印一行"正在扫描: C:\ D:\"就开跑——多范围时要求确认，
+  // 与 GUI 的防误扫对等。
+  if (roots.length > 1 && !(o.flags.yes || o.flags.y)) {
+    console.log(col(C.yellow, '将扫描 ' + roots.length + ' 个范围：'));
+    let drives = null;
+    try { drives = require('../lib/drives.js').list(); } catch (e) { drives = null; }
+    for (const r of roots) {
+      let extra = '';
+      if (drives) {
+        const key = String(r).replace(/[\\/]+$/, '').toLowerCase();
+        const d = drives.filter(function (x) {
+          return String(x.drive || '').replace(/[\\/]+$/, '').toLowerCase() === key;
+        })[0];
+        if (d) extra = '（已用 ' + d.usedText + ' / 共 ' + d.totalText + '）';
+      }
+      console.log('  · ' + r + col(C.gray, extra));
+    }
+    return fail('多范围扫描需要确认', '确认无误后加 --yes 重跑：disk-clean scan ' +
+      roots.join(' ') + ' --yes');
+  }
   console.log(col(C.cyan, '▶ 正在扫描:') + ' ' + col(C.bold, roots.join(', ')));
   // 后台子进程跑引擎（SEA/pkg 环境下自我调用 --internal-scan），主进程轮询进度
   const selfArgs = IS_SEA ? ['--internal-scan'] : [__filename, '--internal-scan'];
@@ -109,11 +132,27 @@ async function cmdScan(o) {
   proc.stdout.on('data', function(d) { stdoutBuf += d.toString('utf8') });
   proc.stderr.on('data', function(d) { stderrBuf += d.toString('utf8') });
   const t0 = Date.now();
+  // ---- E9 / E10：进度反馈 ----
+  // E10：非 TTY（重定向、管道、CI 日志）时不能用 `\r` 覆盖同一行——那会把日志撑成一堆
+  //      重复行，把有用的输出冲掉。这时改成每 3 秒打一行递增日志。
+  // E9：进度要能回答两个问题——"在动吗"和"还要多久"。第一个能答：给出已处理量与**速率**。
+  //      第二个**不假称能答**：扫描前根本不知道总量（要遍历完才知道），此时画个百分比
+  //      是编造出来的。所以这里给速率而不是 ETA，并在完成时给出实测总量与耗时。
+  const isTTY = !!(process.stdout && process.stdout.isTTY);
+  let lastNonTtyLog = 0;
   const timer = setInterval(function() {
     let p = null;
     try { p = JSON.parse(fs.readFileSync(progressPath, 'utf8')); } catch (e) { /* 未就绪 */ }
-    if (p && !p.done) {
-      process.stdout.write('\r' + col(C.dim, '  文件 ' + p.files + ' | 目录 ' + p.dirs + ' | ' + fmtBytes(p.bytes || 0) + (p.currentPath ? ' | ' + p.currentPath : '')) + '   ');
+    if (!p || p.done) return;
+    const sec = Math.max(0.001, (Date.now() - t0) / 1000);
+    const line = '  文件 ' + p.files + ' | 目录 ' + p.dirs + ' | ' + fmtBytes(p.bytes || 0) +
+      ' | 已用 ' + sec.toFixed(0) + 's | ' + fmtBytes((p.bytes || 0) / sec) + '/s' +
+      (p.currentPath ? ' | ' + p.currentPath : '');
+    if (isTTY) {
+      process.stdout.write('\r' + col(C.dim, line) + '   ');
+    } else if (Date.now() - lastNonTtyLog > 3000) {
+      lastNonTtyLog = Date.now();
+      console.log(col(C.dim, '[scan] ' + line.trim()));
     }
   }, 800);
   const code = await new Promise(function(resolve) {
@@ -121,7 +160,8 @@ async function cmdScan(o) {
     proc.on('error', function(e) { stderrBuf += '\n' + e.message; resolve(-1) });
   });
   clearInterval(timer);
-  process.stdout.write('\r\x1b[K');
+  // 只在 TTY 下清行：非 TTY 时输出里根本没有 \r，写控制字符反而会污染日志
+  if (isTTY) process.stdout.write('\r\x1b[K');
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
   if (code !== 0) {
     const lastLine = stdoutBuf.trim().split('\n').pop();
@@ -211,6 +251,23 @@ async function cmdReport(o) {
   const p = o._[0] || audit.reportFile();
   const rep = audit.readJson(p);
   if (!rep) return fail('无法读取报告: ' + p + '（请先运行 scan）');
+  // E16：单文件 HTML 导出（可分享、可存档）。样式内联、不引用外部资源，
+  // 双击能开、发给别人也能开。数据全部来自这份报告，不重新扫描。
+  if (o.flags.html) {
+    const out = p.replace(/\.json(\.gz)?$/i, '') + '.html';
+    try {
+      const html = require('../lib/reporthtml.js').render(rep, {
+        generatedAt: new Date().toISOString(),
+        source: p,
+      });
+      fs.writeFileSync(out, html, 'utf8');
+      console.log(col(C.green, '✔ HTML 报告: ') + out);
+      console.log(col(C.gray, '  单文件、离线可读，可直接发给别人'));
+      return 0;
+    } catch (e) {
+      return fail('HTML 生成失败: ' + ((e && e.message) || String(e)));
+    }
+  }
   const s = rep.summary || {};
   const prov = require('../lib/report.js').describe(rep);
   console.log(col(C.cyan, '── 磁盘分析报告 ──'));
@@ -808,6 +865,7 @@ function help() {
   console.log('                              示例: disk-clean scan C:\\ D:\\');
   console.log('  report [file]              读取报告并渲染 (终端 + Markdown)');
   console.log('      --history              列出报告历史（每次扫描自动归档，保留最近 N 份）');
+  console.log('      --html                 额外导出一份单文件 HTML（可分享、可存档）');
   console.log('  organize plan              生成整理计划 (目录→整理区, 可回滚)');
   console.log('      --include-program      追加程序/游戏目录候选(⚠快捷方式)');
   console.log('  organize apply [file]      执行整理 (默认预览, --yes 执行)');
