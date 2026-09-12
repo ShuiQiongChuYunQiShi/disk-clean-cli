@@ -199,6 +199,7 @@ disk-clean mcp
 | `quota [drive]` | 通过 MFT 做按用户配额分析（需管理员）：用户排名 + 每人 Downloads/Documents/Desktop/… 明细。 |
 | `health` | SMART / SSD 健康：温度、磨损百分比、通电小时、读写错误并给出健康等级。 |
 | `mcp` | 启动 **MCP server**（stdio，12 个工具），供 DeepSeek Harness / Claude Desktop / Cursor 等 AI 客户端接入。stdout 只输出协议消息，诊断信息走 stderr。 |
+| `build-info` | 以 JSON 输出本构建的身份信息（`version` / `commit` / `dirty` / `builtAt`）。用于证明下载到的 exe 就是已发布的那个构建：发布页的 `checksums.txt` 携带同一个 commit。 |
 | `--restore-point` | 加在 `clean` / `organize apply` 前，先创建系统还原点（系统保护关闭时优雅失败）。 |
 | `--lang en\|zh` | `scan` 的报告语言（自动检测，默认跟随系统语言）。 |
 
@@ -209,7 +210,7 @@ disk-clean mcp
 - **默认 dry-run** —— 每个破坏性命令先打印它将*会*做什么；加 `--yes` 才真正执行。
 - **回收站** —— 垃圾/空目录/重复文件先移入回收站，而非直接永久删除。
 - **回滚** —— 目录移动追加进 `organize-map.json`；`organize rollback` 还原上一批（含快捷方式）。
-- **受保护路径** —— 16 个受保护段永远拒绝操作：`\windows\`、`\windows.old\`、`\program files*\`、`\programdata\`、`\winsxs\`、`\system volume information\`、`\$recycle.bin\`、`\$windows.~bt\`、`\$windows.~ws\`、`\recovery\`、`\perflogs\`、`\msocache\`、`\config.msi\`、`\boot\`、`\efi\`。名单只有一份（`lib/guard.js`）。
+- **受保护路径** —— 16 个受保护段永远拒绝操作：`\windows\`、`\windows.old\`、`\program files\`、`\program files (x86)\`、`\programdata\`、`\winsxs\`、`\system volume information\`、`\$recycle.bin\`、`\$windows.~bt\`、`\$windows.~ws\`、`\recovery\`、`\perflogs\`、`\msocache\`、`\config.msi\`、`\boot\`、`\efi\`。名单只有一份（`lib/guard.js`），由 `test/docs-consistency.js` 断言本清单与它逐条一致。
 - **OneDrive 云同步** —— 含 `\OneDrive\` 段的路径一并拒绝破坏性操作（删除会同步影响云端；哈希会触发占位文件静默下载）。
 - **审计日志** —— 每项操作追加到 `~/.disk-clean/audit.jsonl`（时间 / 类型 / 路径 / 结果 / 真实条目数）。
 - **退出码** —— 0 正常 · 1 用户取消/参数错误 · 2 运行错误 · 3 扫描被取消。
@@ -261,9 +262,9 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm test          # 全量测试（11 个套件，含 MCP 协议 / 规则完整性 / 安全闸门回归）
+npm test          # 全量测试（15 个套件，含 MCP 协议 / 规则完整性 / 安全闸门 / 文档一致性回归）
 npm run mcp       # 本地起一个 MCP server
-powershell -File scripts\build.ps1   # 构建 exe + sha256
+powershell -File scripts\build-sea.ps1   # 构建 exe + sha256（含构建指纹）
 ```
 
 - 引擎：`lib/engine-core.js`（唯一可编辑核心）→ `lib/engine.js`（薄壳）—— 零依赖 Node（原生 `fs`），仅快捷方式修复使用 PowerShell COM。

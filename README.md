@@ -20,7 +20,7 @@
 - **`dedup-map.json` has one schema** (MCP wrote `entries`, CLI/GUI wrote `merged` — so files merged by the AI could not be rolled back elsewhere); recycle-bin matching uses `canonKey` on both paths (GUI could not list its own short-name cleanups); rollback maps are written atomically; malformed URL escapes return 400 instead of throwing.
 - **Release integrity**: a stale `checksums.txt` from CI's own build used to ship alongside the local exe — v0.5.0 shipped `sha256=72ce9f21…` for an exe hashing `3cbdc188…`. The publish script now recomputes, uploads and *downloads back to verify*.
 
-New `test/safety-gates.js` (11 suites total, 23 assertion groups) guards every item above — including an end-to-end proof with real >32MB files.
+New `test/safety-gates.js` guards every item above — including an end-to-end proof with real >32MB files. The authoritative suite list is `test/all.js` (never restate a suite count here: `test/docs-consistency.js` fails the build when a number in this file disagrees with the code).
 
 ## What's new in v0.5.0
 
@@ -203,6 +203,7 @@ disk-clean mcp
 | `drives` | List local drives with real volume capacity (total / used / free / usage). Same source as the `disk_drives` MCP tool and the GUI drive cards. |
 | `health` | SMART / SSD health: temperature, wear %, power-on hours, read/write errors with a health grade. |
 | `mcp` | Start the **MCP server** (stdio, 12 tools) for DeepSeek Harness / Claude Desktop / Cursor and any other MCP client. stdout carries protocol messages only; diagnostics go to stderr. |
+| `build-info` | Print this build's identity as JSON (`version` / `commit` / `dirty` / `builtAt`). Use it to prove a downloaded exe is the published build: the published `checksums.txt` carries the same commit. |
 | `--restore-point` | Add to `clean` / `organize apply` to create a system restore point first (fails gracefully if protection is off). |
 | `--lang en\|zh` | Report language for `scan` (auto-detected; defaults to system language). |
 
@@ -213,7 +214,7 @@ disk-clean mcp
 - **Dry-run by default** — every destructive command prints what it *would* do; pass `--yes` to actually run.
 - **Recycle bin** — junk/empty/duplicate items are moved to the recycle bin, not permanently deleted.
 - **Rollback** — directory moves append to `organize-map.json`; `organize rollback` restores the last batch (including shortcuts).
-- **Protected paths** — 16 protected segments are always refused: `\windows\`, `\windows.old\`, `\program files*\`, `\programdata\`, `\winsxs\`, `\system volume information\`, `\$recycle.bin\`, `\$windows.~bt\`, `\$windows.~ws\`, `\recovery\`, `\perflogs\`, `\msocache\`, `\config.msi\`, `\boot\`, `\efi\`. The list exists in exactly one place (`lib/guard.js`).
+- **Protected paths** — 16 protected segments are always refused: `\windows\`, `\windows.old\`, `\program files\`, `\program files (x86)\`, `\programdata\`, `\winsxs\`, `\system volume information\`, `\$recycle.bin\`, `\$windows.~bt\`, `\$windows.~ws\`, `\recovery\`, `\perflogs\`, `\msocache\`, `\config.msi\`, `\boot\`, `\efi\`. The list exists in exactly one place (`lib/guard.js`), and `test/docs-consistency.js` fails if this enumeration and that list stop matching.
 - **OneDrive cloud sync** — paths containing a `\OneDrive\` segment are refused for destructive operations too (deleting syncs to the cloud; hashing triggers silent placeholder downloads).
 - **Audit log** — every action is appended to `~/.disk-clean/audit.jsonl` (time / type / paths / result / real item counts).
 - **Exit codes** — 0 ok · 1 user cancel/args · 2 runtime error · 3 scan cancelled.
@@ -265,9 +266,9 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm test          # full suite (11 suites, incl. MCP protocol + rules integrity + safety gates)
+npm test          # full suite (15 suites, incl. MCP protocol + rules integrity + safety gates + docs consistency)
 npm run mcp       # start an MCP server locally
-powershell -File scripts\build.ps1   # build exe + sha256
+powershell -File scripts\build-sea.ps1   # build exe + sha256 (adds the build fingerprint)
 ```
 
 - Engine: `lib/engine-core.js` (the only editable core) → `lib/engine.js` (thin wrapper) — zero-dependency Node (native `fs`), PowerShell used only for COM shortcut fixing.

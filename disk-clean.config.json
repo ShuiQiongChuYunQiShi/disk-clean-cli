@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "_comment": [
+    "项目清单（入库）—— 发布身份与产物清单的唯一事实源。",
+    "用途：scripts/manifest.js 读取本文件驱动发布/审批/验证，避免仓库名、包名、",
+    "资产名散落在多个 .ps1 与文档里（实测硬编码：disk-clean-win-x64 x29 等）。",
+    "注意：本文件与用户级运行时配置 ~/.disk-clean/config.json 无关（那是产品配置，见 lib/config.js）。",
+    "占位符 ${version} 在读取时替换为当前版本号。"
+  ],
+  "product": "disk-clean",
+  "repo": "ShuiQiongChuYunQiShi/disk-clean-cli",
+  "branch": "master",
+  "npmPackage": "disk-clean",
+  "runtime": {
+    "minNodeMajor": 18,
+    "minNodeMinor": 15,
+    "npmFilesWhitelist": ["bin", "lib", "README.md", "LICENSE"]
+  },
+  "release": {
+    "approvedByTtlMinutes": 30,
+    "assets": [
+      {
+        "name": "disk-clean-win-x64.exe",
+        "path": "dist/disk-clean-win-x64.exe",
+        "role": "engine",
+        "producer": "scripts/build-sea.ps1",
+        "fingerprinted": true
+      },
+      {
+        "name": "disk-clean-setup-${version}.exe",
+        "path": "gui/dist/disk-clean-setup-${version}.exe",
+        "role": "installer",
+        "producer": "scripts/build-installer.ps1"
+      },
+      {
+        "name": "disk-clean-win-x64.exe.sha256",
+        "path": "dist/disk-clean-win-x64.exe.sha256",
+        "role": "checksum",
+        "producer": "scripts/publish-release.ps1"
+      },
+      {
+        "name": "disk-clean-setup-${version}.exe.sha256",
+        "path": "gui/dist/disk-clean-setup-${version}.exe.sha256",
+        "role": "checksum",
+        "producer": "scripts/build-installer.ps1"
+      },
+      {
+        "name": "SHA256SUMS.txt",
+        "path": "dist/SHA256SUMS.txt",
+        "role": "checksum",
+        "producer": "scripts/publish-release.ps1"
+      },
+      {
+        "name": "checksums.txt",
+        "path": "dist/checksums.txt",
+        "role": "checksum",
+        "producer": "scripts/publish-release.ps1"
+      }
+    ]
+  },
+  "docs": {
+    "playbook": "docs/RELEASE-PLAYBOOK.md",
+    "changelog": "CHANGELOG.md",
+    "releaseNotes": "docs/RELEASE_NOTES-v${version}.md",
+    "releaseGuide": "docs/release-guide-v${version}.md"
+  }
+}

@@ -66,6 +66,9 @@ for (const f of files) {
       const itemM = /^ {6}-\s+(.*)$/.exec(lines[j]);
       const bareM = /^ {6}-\s*$/.exec(lines[j]);
       if (!itemM && !bareM) {
+        // 列表项之间的注释行是合法 YAML（本文件里就有：在两步之间写说明）。
+        // 它不含键、不改变结构，放行；否则一条解释性注释会被报成"缩进结构异常"。
+        if (/^ {6}#/.test(lines[j])) continue;
         // steps 内出现非列表项内容，说明缩进结构异常
         if (/^ {6}\S/.test(lines[j]) && lines[j].trim()) {
           throw new Error('FAIL: ' + f + ' steps 下第 ' + (j + 1) + ' 行不是列表项：' + lines[j].trim());

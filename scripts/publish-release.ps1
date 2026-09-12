@@ -4,6 +4,13 @@
 # Requires: $env:GH_TOKEN (fine-grained PAT with **Contents: Read and write**),
 #           gh at C:\Program Files\GitHub CLI\gh.exe or in PATH
 #
+# HUMAN APPROVAL IS REQUIRED (S4). This script exits 1 unless a human first ran
+#   node scripts\approval.js confirm --version <ver> --by "<name>"
+# The approval seals the sha256 of every artifact, so rebuilding after approval
+# invalidates it. There is deliberately no --yes / --force / --skip-approval:
+# an approval gate with a bypass is not a gate. See scripts\approval.js for what
+# this can and cannot defend against (it is a procedural gate, not a sandbox).
+#
 # METHOD: validate every step explicitly and exit 1 on the first failure.
 # The previous version created nothing (release create returned 403, asset upload
 # said "release not found") yet printed "Publish verified: v0.5.0" and exited 0
@@ -15,25 +22,55 @@
 # as ANSI/GBK, which corrupts non-ASCII text into parser errors (issue G46).
 param([string]$ver, [switch]$PublishNpm)
 $ErrorActionPreference = 'Continue'   # native stderr noise must not become a terminating error
-if (-not $ver) { Write-Error "Usage: publish-release.ps1 <ver>  e.g. 0.5.0"; exit 1 }
-if ($ver -notmatch '^\d+\.\d+\.\d+$') { Write-Error "Version must be x.y.z"; exit 1 }
+
+# Fail writes to stderr directly instead of using Write-Error. PowerShell 5.1 turns
+# Write-Error into a "CategoryInfo / FullyQualifiedErrorId" block that buries the actual
+# reason under script source lines. The refusal message IS the user interface of this
+# script - when a release is blocked, that sentence is the only thing the human needs to
+# read, so it has to come out intact. Defined here so the early argument checks can use it.
+function Fail($msg) { [Console]::Error.WriteLine($msg); exit 1 }
+
+if (-not $ver) { Fail "Usage: publish-release.ps1 <ver>  e.g. 0.5.0" }
+if ($ver -notmatch '^\d+\.\d+\.\d+$') { Fail "Version must be x.y.z" }
 
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
 $gh = "C:\Program Files\GitHub CLI\gh.exe"
 if (-not (Test-Path $gh)) { $gh = "gh" }
-if (-not $env:GH_TOKEN) { Write-Error "GH_TOKEN not set"; exit 1 }
 
 $tag = "v$ver"
-$repo = "ShuiQiongChuYunQiShi/disk-clean-cli"
+
+# Release identity and the artifact list come from the manifest (S3), not from
+# literals repeated across scripts and docs. The old literals drifted: the repo
+# name, asset names and the checksums format each lived in several places.
+$manifestPath = Join-Path $root "disk-clean.config.json"
+if (-not (Test-Path $manifestPath)) { Fail "missing disk-clean.config.json" }
+$manifest = Get-Content $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$repo = $manifest.repo
 $apiHeaders = @{ Authorization = "Bearer $env:GH_TOKEN"; "User-Agent" = "dsh"; Accept = "application/vnd.github+json" }
 
-function Fail($msg) { Write-Error $msg; exit 1 }
+# Asset paths are declared once, in the manifest, with a ${version} placeholder.
+function ManifestPath($asset) { return ($asset.path -replace '\$\{version\}', $ver) }
+$engineAsset = $manifest.release.assets | Where-Object { $_.role -eq 'engine' } | Select-Object -First 1
+$setupAsset = $manifest.release.assets | Where-Object { $_.role -eq 'installer' } | Select-Object -First 1
+if (-not $engineAsset) { Fail "disk-clean.config.json declares no asset with role=engine" }
+if (-not $setupAsset) { Fail "disk-clean.config.json declares no asset with role=installer" }
 
 # Wrapper for native commands: returns @{ code; out } and never throws on stderr noise.
+# The SilentlyContinue scope matters for readability: PowerShell 5.1 turns a native
+# command's stderr into an ErrorRecord and prints a CategoryInfo block, which used to
+# bury the actual reason a release was refused ("no approval file") under a wall of
+# "At ... char:10 + $out = & $file @argList". The exit code is still captured and every
+# caller checks it, so nothing is swallowed.
 function RunNative($file, $argList) {
-  $out = & $file @argList 2>&1 | Out-String
-  return @{ code = $LASTEXITCODE; out = $out }
+  $prev = $ErrorActionPreference
+  $ErrorActionPreference = 'SilentlyContinue'
+  try {
+    $out = & $file @argList 2>&1 | Out-String
+    return @{ code = $LASTEXITCODE; out = $out }
+  } finally {
+    $ErrorActionPreference = $prev
+  }
 }
 
 function GetRelease($tagName) {
@@ -44,8 +81,39 @@ function GetRelease($tagName) {
   }
 }
 
-# ---------- 0) Preflight: repo reachable with this token ----------
-Write-Output "==> 0/6 preflight..."
+# ---------- 0) Release approval gate (S4) ----------
+# Nothing else in this script may run first: no tag, no release, no upload.
+# This is the only step whose failure means "a human has not agreed to this".
+Write-Output "==> 0/7 release approval gate..."
+$gate = RunNative 'node' @('scripts\approval.js', 'check', '--version', $ver)
+Write-Output $gate.out.Trim()
+if ($gate.code -ne 0) {
+  Fail ("Release blocked: no valid human approval for v$ver.`n" +
+        "  A human runs: node scripts\approval.js confirm --version $ver --by `"<name>`"`n" +
+        "  There is no --yes / --force for this gate, by design.")
+}
+
+# ---------- 0b) Release prerequisites: curated notes + a run guide ----------
+# These two files used to be "documented conventions" that nothing enforced, which is
+# why releases could ship with no written record of what changed or how to verify it.
+# A convention with no script behind it is not a rule (see docs/SOP-UPGRADE-PLAN.md 1.8).
+foreach ($doc in @("docs\RELEASE_NOTES-v$ver.md", "docs\release-guide-v$ver.md")) {
+  if (-not (Test-Path (Join-Path $root $doc))) {
+    Fail ("missing $doc`n" +
+          "  A release needs curated notes and a per-release guide before it ships.`n" +
+          "  Generate the guide skeleton: node scripts/dev.js release-guide --version $ver")
+  }
+}
+Write-Output "release prerequisites present (notes + guide)"
+
+# Credentials are checked AFTER the approval gate on purpose: "should this be
+# released" comes before "is the toolchain able to release it". Reversed, a missing
+# token reports as a credential problem and the human never learns that the real
+# blocker is the missing approval.
+if (-not $env:GH_TOKEN) { Write-Error "GH_TOKEN not set"; exit 1 }
+
+# ---------- 1) Preflight: repo reachable with this token ----------
+Write-Output "==> 1/7 preflight..."
 try {
   $null = Invoke-RestMethod "https://api.github.com/repos/$repo" -Headers $apiHeaders -TimeoutSec 30 -ErrorAction Stop
 } catch {
@@ -53,8 +121,8 @@ try {
 }
 Write-Output "token can read $repo"
 
-# ---------- 1) Ensure the tag exists and is pushed ----------
-Write-Output "==> 1/6 tag $tag ..."
+# ---------- 2) Ensure the tag exists and is pushed ----------
+Write-Output "==> 2/7 tag $tag ..."
 $hasTag = ((git tag -l $tag) | Out-String).Trim()
 if (-not $hasTag) {
   Write-Output "creating local tag $tag"
@@ -69,8 +137,8 @@ if (-not $remoteTag) {
 }
 Write-Output "tag $tag is on the remote"
 
-# ---------- 2) Create the Release (non-draft); skip when it already exists ----------
-Write-Output "==> 2/6 release..."
+# ---------- 3) Create the Release (non-draft); skip when it already exists ----------
+Write-Output "==> 3/7 release..."
 $release = GetRelease $tag
 $notesFile = Join-Path $env:TEMP "release-notes-$ver.md"
 $haveNotes = $false
@@ -120,41 +188,73 @@ if (-not $release) { Fail "release $tag still cannot be found after creation" }
 if ($release.draft) { Fail "release $tag is still a draft" }
 Write-Output "release ready: id=$($release.id) draft=$($release.draft) prerelease=$($release.prerelease)"
 
-# ---------- 3) Recompute checksums from the current artifacts ----------
-Write-Output "==> 3/6 checksums..."
-$engineExe = "dist\disk-clean-win-x64.exe"
-$setupExe = "gui\dist\disk-clean-setup-$ver.exe"
-if (-not (Test-Path $engineExe)) { Fail "missing $engineExe (run scripts\build-sea.ps1 first)" }
-if (-not (Test-Path $setupExe)) { Fail "missing $setupExe (run scripts\build-installer.ps1 first)" }
+# ---------- 4) Artifact fingerprint + checksums ----------
+Write-Output "==> 4/7 artifact fingerprint + checksums..."
+$engineExe = ManifestPath $engineAsset
+$setupExe = ManifestPath $setupAsset
+if (-not (Test-Path $engineExe)) { Fail "missing $engineExe (run $($engineAsset.producer) first)" }
+if (-not (Test-Path $setupExe)) { Fail "missing $setupExe (run $($setupAsset.producer) first)" }
+
+# S9: the exe must prove it was built from the current commit on a clean tree.
+# A stale binary (built before the last edit) is otherwise indistinguishable from
+# a correct one: same version, self-consistent checksums, download-verify passes.
+$fpArgs = @('scripts\fingerprint.js', 'check', '--exe', $engineExe, '--json')
+$fpRes = RunNative 'node' $fpArgs
+$fpJson = $null
+try { $fpJson = $fpRes.out | ConvertFrom-Json } catch { $fpJson = $null }
+if ($fpRes.code -ne 0 -or -not $fpJson -or -not $fpJson.ok) {
+  $detail = if ($fpJson -and $fpJson.checks) {
+    ($fpJson.checks | Where-Object { -not $_.ok } | ForEach-Object { "`n    - " + $_.name + ": " + $_.detail }) -join ''
+  } else { "`n    " + $fpRes.out.Trim() }
+  Fail ("Artifact does not match the source tree (S9).$detail`n" +
+        "  Fix: commit the source, then rebuild (scripts\build-sea.ps1) and re-approve.")
+}
+Write-Output ("fingerprint OK: v$($fpJson.info.version) commit=$($fpJson.info.commit) dirty=$($fpJson.info.dirty)")
+
 $engineSha = (Get-FileHash $engineExe -Algorithm SHA256).Hash.ToLower()
 $setupSha = (Get-FileHash $setupExe -Algorithm SHA256).Hash.ToLower()
+$buildCommit = $fpJson.info.commit
+$engineName = $engineAsset.name
+$setupName = $setupAsset.name
+$sumsAsset = $manifest.release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' } | Select-Object -First 1
+$ckAsset = $manifest.release.assets | Where-Object { $_.name -eq 'checksums.txt' } | Select-Object -First 1
+if (-not $sumsAsset -or -not $ckAsset) { Fail "disk-clean.config.json must declare SHA256SUMS.txt and checksums.txt" }
+$sumsFile = ManifestPath $sumsAsset
+$ckFile = ManifestPath $ckAsset
+
+# Every checksum file is regenerated here from the artifacts that are about to be
+# uploaded, so none of them can describe a build that is no longer there (issue G53:
+# v0.5.0 shipped sha256=72ce9f21... for an exe hashing 3cbdc188...). CI also publishes
+# its own checksums.txt on tag push, built from CI's own SEA run -- this rewrite
+# replaces it. Each line carries the build commit as well, so a checksum file on its
+# own still says which source revision the artifact came from.
 $enc = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText((Join-Path $root "dist\SHA256SUMS.txt"),
-  "$engineSha  disk-clean-win-x64.exe`n$setupSha  disk-clean-setup-$ver.exe`n", $enc)
-# Per-artifact .sha256 files are rewritten too, so they cannot disagree with the manifest.
-[System.IO.File]::WriteAllText("$engineExe.sha256", "$engineSha  disk-clean-win-x64.exe`n", $enc)
-[System.IO.File]::WriteAllText("$setupExe.sha256", "$setupSha  disk-clean-setup-$ver.exe`n", $enc)
-# checksums.txt is rewritten as well: CI publishes its own copy on tag push (built from
-# CI's own SEA run), and step 4 then clobbers the exe with the local build. Without this
-# rewrite the release ships a checksums.txt whose hash belongs to a build that is no
-# longer there (issue G53: v0.5.0 shipped sha256=72ce9f21... for an exe hashing 3cbdc188...).
-[System.IO.File]::WriteAllText((Join-Path $root "dist\checksums.txt"),
-  "disk-clean-win-x64.exe  sha256=$engineSha  size=$((Get-Item $engineExe).Length)  version=$ver`n" +
-  "disk-clean-setup-$ver.exe  sha256=$setupSha  size=$((Get-Item $setupExe).Length)  version=$ver`n", $enc)
+[System.IO.File]::WriteAllText($sumsFile, "$engineSha  $engineName`n$setupSha  $setupName`n", $enc)
+[System.IO.File]::WriteAllText("$engineExe.sha256", "$engineSha  $engineName`n", $enc)
+[System.IO.File]::WriteAllText("$setupExe.sha256", "$setupSha  $setupName`n", $enc)
+[System.IO.File]::WriteAllText($ckFile,
+  "$engineName  sha256=$engineSha  size=$((Get-Item $engineExe).Length)  version=$ver  commit=$buildCommit`n" +
+  "$setupName  sha256=$setupSha  size=$((Get-Item $setupExe).Length)  version=$ver  commit=$buildCommit`n", $enc)
 Write-Output "engine sha256 = $engineSha"
 Write-Output "setup  sha256 = $setupSha"
+Write-Output "build  commit = $buildCommit"
 
-# ---------- 4) Upload assets ----------
-Write-Output "==> 4/6 upload..."
-$assets = @(
-  $setupExe,
-  "$setupExe.sha256",
-  $engineExe,
-  "$engineExe.sha256",
-  "dist\SHA256SUMS.txt",
-  "dist\checksums.txt"
-) | Where-Object { Test-Path $_ }
+# ---------- 5) Upload assets ----------
+Write-Output "==> 5/7 upload..."
 
+# Re-check the approval immediately before the irreversible step. The artifact hashes
+# are recomputed here, so an artifact swapped during this run is caught as well.
+$gate2 = RunNative 'node' @('scripts\approval.js', 'check', '--version', $ver)
+if ($gate2.code -ne 0) {
+  Write-Output $gate2.out.Trim()
+  Fail "Release blocked: approval no longer valid at upload time (artifacts changed after approval?)"
+}
+
+$assets = @()
+foreach ($a in $manifest.release.assets) {
+  $p = ManifestPath $a
+  if (Test-Path $p) { $assets += $p }
+}
 $r = RunNative $gh (@('release', 'upload', $tag) + $assets + @('--clobber'))
 if ($r.code -ne 0) { Fail "gh release upload failed: $($r.out)" }
 Write-Output "uploaded $($assets.Count) assets"
@@ -169,8 +269,8 @@ foreach ($a in $assets) {
     Fail "asset missing on the remote release: $name (remote has: $($remoteNames -join ', '))"
   }
 }
-$remoteEngine = $release.assets | Where-Object { $_.name -eq 'disk-clean-win-x64.exe' }
-$remoteSetup = $release.assets | Where-Object { $_.name -eq "disk-clean-setup-$ver.exe" }
+$remoteEngine = $release.assets | Where-Object { $_.name -eq $engineName }
+$remoteSetup = $release.assets | Where-Object { $_.name -eq $setupName }
 if ($remoteEngine.size -ne (Get-Item $engineExe).Length) {
   Fail "remote engine size $($remoteEngine.size) != local $((Get-Item $engineExe).Length)"
 }
@@ -197,11 +297,11 @@ if ($ckText -notmatch [regex]::Escape($engineSha)) {
 Write-Output "checksums.txt matches the published engine hash"
 Write-Output "assets verified ($($remoteNames.Count) items, sizes match)"
 
-# ---------- 5) Download back and verify hashes ----------
-Write-Output "==> 5/6 download-back verification..."
+# ---------- 6) Download back and verify hashes ----------
+Write-Output "==> 6/7 download-back verification..."
 $pairs = @(
-  @{ n = "disk-clean-setup-$ver.exe"; sha = $setupSha },
-  @{ n = 'disk-clean-win-x64.exe'; sha = $engineSha }
+  @{ n = $setupName; sha = $setupSha },
+  @{ n = $engineName; sha = $engineSha }
 )
 foreach ($pair in $pairs) {
   $asset = $release.assets | Where-Object { $_.name -eq $pair.n }
@@ -218,9 +318,9 @@ foreach ($pair in $pairs) {
   Write-Output "$($pair.n) hash OK"
 }
 
-# ---------- 6) Optional npm publish ----------
+# ---------- 7) Optional npm publish ----------
 if ($PublishNpm) {
-  Write-Output "==> 6/6 npm publish..."
+  Write-Output "==> 7/7 npm publish..."
   $pkgVer = (Get-Content (Join-Path $root "package.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version
   if ($pkgVer -ne $ver) { Fail "package.json version $pkgVer != $ver, aborting npm publish" }
   $r = RunNative 'npm' @('publish', '--access', 'public')
@@ -235,7 +335,7 @@ if ($PublishNpm) {
   }
   Write-Output "npm publish OK"
 } else {
-  Write-Output "==> 6/6 npm skipped (no -PublishNpm)"
+  Write-Output "==> 7/7 npm skipped (no -PublishNpm)"
 }
 
 Write-Output ""

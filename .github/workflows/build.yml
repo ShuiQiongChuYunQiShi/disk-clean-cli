@@ -17,10 +17,15 @@ jobs:
     # `permissions` is valid only at workflow or job level -- putting it on a
     # step makes the whole workflow file invalid, and GitHub then fails every
     # run immediately with the file path as the run name instead of a real job.
-    # This single job both builds and (on tags) publishes the release, so it
-    # needs write access to contents.
+    #
+    # Read-only on purpose (S4). This workflow used to also create the Release on
+    # tag pushes, which meant `git push --tags` published an unapproved, half-built
+    # release (engine only, no GUI installer) and walked straight around the local
+    # approval gate -- a gate with a bypass is not a gate. Releasing is now done
+    # only by scripts/publish-release.ps1, which requires human approval. CI builds
+    # and uploads a workflow artifact so the tag can still be verified here.
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
@@ -36,21 +41,26 @@ jobs:
           node --check gui\web\ui-kit.js
           node --check gui\web\app.js
 
-      - name: Test suite
-        # engine-smoke / engine-edge / clean-safety / organize-safety / serve-integration /
-        # mcp-protocol / dsh-config / rules-integrity / version-consistency / ci-workflow
-        run: node test/all.js
-
+      # Dependencies come before the tests: every product test is zero-dependency,
+      # but test/build-fingerprint.js must really bundle once to prove the build
+      # fingerprint is injected (asserting "the flag is written in the script"
+      # would not catch a typo'd --define, which is the actual failure mode).
       - name: Install build deps (from lockfile)
         run: npm ci
+
+      - name: Test suite
+        # The authoritative list is test/all.js, not this comment; the
+        # docs-consistency suite fails the build if a test file is not registered
+        # there (an unregistered test never runs, locally or in CI).
+        run: node test/all.js
 
       - name: Build exe (Node SEA)
         run: powershell -ExecutionPolicy Bypass -File scripts\build-sea.ps1
 
-      - name: Checksums
-        run: |
-          $h = (Get-FileHash -Algorithm SHA256 dist\disk-clean-win-x64.exe).Hash.ToLower()
-          "sha256=$h" | Out-File -Encoding ascii dist\checksums.txt
+      - name: Assert build fingerprint
+        # The exe must carry the commit it was built from, and the tree must be
+        # clean. Otherwise "this artifact came from this source" is unverifiable.
+        run: node scripts\fingerprint.js check --exe dist\disk-clean-win-x64.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -58,11 +68,6 @@ jobs:
           name: disk-clean-win-x64
           path: dist/
 
-      - name: Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist/disk-clean-win-x64.exe
-            dist/checksums.txt
-          generate_release_notes: true
+      # NOTE: there is deliberately no release step here. See the comment on the
+      # job's permissions above: publishing requires human approval, and that
+      # gate lives in scripts/publish-release.ps1.

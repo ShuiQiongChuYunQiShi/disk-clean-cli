@@ -651,6 +651,14 @@ async function cmdConfig(o) {
 }
 
 // ---------- help / version ----------
+// 制品形态下带上构建短哈希（S9）：用户下载到 exe 后，这一行就能证明它是由哪个
+// commit 打出来的，不必依赖发布页的说明。源码形态没有指纹，输出保持原样。
+function versionLine() {
+  const b = require('../lib/version.js').buildInfo();
+  if (!b.fingerprint) return 'disk-clean v' + VER;
+  return 'disk-clean v' + VER + ' (build ' + b.commit + (b.dirty ? '-dirty' : '') + ')';
+}
+
 function help() {
   console.log(col(C.bold, 'disk-clean v' + VER + ' — Windows 磁盘清理与分析 CLI'));
   console.log('');
@@ -680,6 +688,8 @@ function help() {
   console.log('  serve --port <p> --token <t> --web <dir>   GUI 引擎 HTTP 服务');
   console.log('  mcp                         MCP Server（stdio，供 AI 客户端调用磁盘工具）');
   console.log('                              (仅绑定 127.0.0.1, Bearer 鉴权, 常驻)');
+  console.log('  build-info                  输出构建信息 JSON（版本/commit/是否脏树）');
+  console.log('                              (校验下载到的 exe 是否等于已发布构建)');
   console.log('  clean / organize apply --restore-point   执行前先建系统还原点 (失败不中断)');
   console.log('');
   console.log('通用选项:');
@@ -753,9 +763,10 @@ async function main() {
         if (o._[0] === 'rollback') return await cmdDedupRollback(o);
         return await cmdDedup(o);
       }
-      case 'version': case '-v': case '--version': console.log('disk-clean v' + VER); return 0;
+      case 'version': case '-v': case '--version': console.log(versionLine()); return 0;
+      case 'build-info': console.log(JSON.stringify(require('../lib/version.js').buildInfo())); return 0;
       case 'help': case '-h': case '--help': case undefined:
-        if (o.flags.version || o.flags.v) { console.log('disk-clean v' + VER); return 0; }
+        if (o.flags.version || o.flags.v) { console.log(versionLine()); return 0; }
         return help();
       default: return fail('未知命令: ' + cmd + '（--help 查看用法）');
     }

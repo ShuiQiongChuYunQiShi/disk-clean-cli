@@ -4,6 +4,8 @@ const { execFileSync } = require('child_process');
 const path = require('path');
 
 // 固定清单（不做“文件存在就跳过”的隐式降级：评审指出静默 SKIP 会让 CI 假绿）
+// test/docs-consistency.js 会反向断言本清单与 test/*.js 完全一致——
+// 写了测试却忘记注册，会让它在本地与 CI 都永远不跑，那是最隐蔽的一种假绿。
 const suites = [
   'engine-smoke.js',
   'engine-edge.js',
@@ -17,6 +19,9 @@ const suites = [
   'rules-integrity.js',
   'version-consistency.js',
   'ci-workflow.js',
+  'docs-consistency.js',
+  'build-fingerprint.js',
+  'approval-gate.js',
 ];
 
 let failed = 0;

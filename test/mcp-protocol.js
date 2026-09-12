@@ -320,7 +320,30 @@ async function main() {
   assert(byId[2] && byId[2].result.tools.length >= 12, 'B 子进程 tools/list');
   assert(byId[3] && byId[3].result && !byId[3].result.isError, 'B 子进程 tools/call disk_drives');
 
-  console.log('PASS mcp-protocol: ' + list.length + ' tools, 协议/注解/错误码/安全负例/路径归一化/子进程 stdout 纯净性 均通过');
+  // A13. 工具执行路径不得读 stdin，也不得 process.exit（静态检查）
+  //
+  // 这条来自参考项目的一个真实缺陷：它的 MCP 部署工具在没有 approvalFile 时会去读
+  // stdin 等确认，读不到就 process.exit(1)——而 MCP server 的 stdin **就是协议通道**，
+  // 于是"调用一个工具"直接把整个 server 杀掉，客户端再也发不出请求。
+  //
+  // 本仓库现在没有这个问题（工具的输入全部来自请求参数），但这是个一旦引入就极难自查的
+  // 故障，所以固化成断言：工具实现里不允许出现 stdin 读取或进程退出。
+  // 允许 process.exit 的位置只有 server 自身在 stdin 关闭（客户端断开）时的退出。
+  {
+    const fs = require('fs');
+    const path = require('path');
+    const toolsSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mcp', 'tools.js'), 'utf8');
+    assert(!/process\.exit/.test(toolsSrc),
+      'lib/mcp/tools.js 里出现 process.exit —— 工具执行路径退出会直接杀掉 MCP server');
+    assert(!/readline|readSync\s*\(\s*0|process\.stdin/.test(toolsSrc),
+      'lib/mcp/tools.js 里出现 stdin 读取 —— MCP 的 stdin 是协议通道，读它会让协议流错乱');
+    const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'lib', 'mcp', 'server.js'), 'utf8');
+    const exits = (serverSrc.match(/process\.exit/g) || []).length;
+    assert(exits === 1 && /rl\.on\('close'/.test(serverSrc),
+      'lib/mcp/server.js 里唯一的 process.exit 必须只用于 stdin 关闭后的正常退出，实际出现 ' + exits + ' 处');
+  }
+
+  console.log('PASS mcp-protocol: ' + list.length + ' tools, 协议/注解/错误码/安全负例/路径归一化/子进程 stdout 纯净性/工具不得退出服务器 均通过');
 }
 
 main().then(function () {
