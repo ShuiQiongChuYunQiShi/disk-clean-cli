@@ -26,6 +26,7 @@ const suites = [
   'approval-gate.js',
   'report-provenance.js',
   'report-history.js',
+  'category-coverage.js',
 ];
 
 let failed = 0;

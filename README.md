@@ -281,7 +281,7 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm test          # full suite (17 suites, incl. MCP protocol + rules integrity + safety gates + docs consistency)
+npm test          # full suite (18 suites, incl. MCP protocol + rules integrity + safety gates + docs consistency)
 npm run mcp       # start an MCP server locally
 powershell -File scripts\build-sea.ps1   # build exe + sha256 (adds the build fingerprint)
 ```

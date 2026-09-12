@@ -283,7 +283,7 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm test          # 全量测试（17 个套件，含 MCP 协议 / 规则完整性 / 安全闸门 / 文档一致性回归）
+npm test          # 全量测试（18 个套件，含 MCP 协议 / 规则完整性 / 安全闸门 / 文档一致性回归）
 npm run mcp       # 本地起一个 MCP server
 powershell -File scripts\build-sea.ps1   # 构建 exe + sha256（含构建指纹）
 ```
