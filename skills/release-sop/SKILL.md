@@ -11,8 +11,17 @@
 ## 第一步：先读权威文档
 
 ```text
-读取 D:\deepseekHerness\disk-clean-cli\docs\RELEASE-PLAYBOOK.md（仓库权威版）
-以及 docs\OPTIMIZATION-PLAN.md（演进计划/已修缺陷）和 docs\GUI-PLAN.md（GUI 设计/验收点）
+读取 D:\deepseekHerness\disk-clean-cli\docs\RELEASE-PLAYBOOK.md（仓库权威版，§0.1 = 三道脚本级门禁 + 完成前验证铁律）
+以及 docs\OPTIMIZATION-PLAN.md（演进计划/已修缺陷）、docs\GUI-PLAN.md（GUI 设计/验收点）
+和 docs\SOP-UPGRADE-PLAN.md（流程建设：哪些约束真的被脚本拦住了、哪些还没有）
+```
+
+**发布相关的一切以这三条命令为准，不要凭记忆操作**：
+
+```powershell
+node scripts/dev.js doctor      # 环境与凭据
+node scripts/dev.js verify      # 一键验证链（退出码即门禁）
+node scripts/approval.js check  # 发布审批是否有效（发布脚本内部已调用）
 ```
 
 仓库路径：`D:\deepseekHerness\disk-clean-cli\`（GitHub: ShuiQiongChuYunQiShi/disk-clean-cli，master）。
@@ -36,12 +45,26 @@ npm 包：`disk-clean`（两个 bin：`disk-clean` 与 `disk-clean-mcp`）。
   `node scripts/bump-version.js <from> <to>`（自带一致性自校验）。
 - 子进程自我调用 `--internal-*`，按 IS_SEA 分派；零运行时依赖（Node 内建 + PowerShell 补齐）。
 - `engines.node >= 18.15`（`fs.statfsSync` 与 `node:sea` 的下限）。
-- 版本 bump → 重打包 → **全命令回归**（`npm test`，7 套件）→ commit（exe 与源码同步）。
+- 版本 bump → 重打包 → **全命令回归**（`npm test`，套件清单以 `test/all.js` 为准，
+  不在文档里写死数量——`test/docs-consistency.js` 会因数字对不上而让构建失败）
+  → commit（exe 与源码同步）。
+- 制品自带指纹：打包时注入 `commit`/脏树标记，`disk-clean build-info` 输出，
+  发布前用 `node scripts/fingerprint.js check` 断言"制品 == 源码"（详见下方 C）。
 
-### C. GitHub 上传
+### C. GitHub 上传与**发布门禁**（v0.7.1 起为硬性）
 - 认证：fine-grained PAT 用 `$env:GH_TOKEN`（`gh auth login --with-token` 报 401）；
   token 不能建仓库时列出选项让用户选，不卡住。
 - 提交：英文 message；本地全量回归 → bump → commit → tag → Release 说明 → SHA256，GitHub 只搬运。
+- **审批门禁（不可绕过）**：`publish-release.ps1` 的第 0 步是
+  `node scripts/approval.js check`。没有人工批准（`approval.js confirm --version <v> --by "<名字>"`）
+  就直接 exit 1。审批绑定**每个产物的 sha256**，所以**批准后重新构建会导致审批失效**（须重批）；
+  有效期 30 分钟；`--yes` / `--force` / `--skip-approval` 会被显式拒绝。
+  门禁排在 `GH_TOKEN` 检查之前——"该不该发"先于"能不能发"。
+- **CI 不再自动创建 Release**：`git push --tags` 只会构建 + 断言指纹 + 上传 workflow artifact。
+  发布只能由 `publish-release.ps1` 完成（此前 tag 推送会自动发一个未获批的半成品 Release，
+  等于绕过门禁）。发现"有 tag 没 Release"就是忘了跑发布脚本。
+- **发布前置文档**：`docs/RELEASE_NOTES-v<ver>.md` 与 `docs/release-guide-v<ver>.md` 缺任一，发布脚本直接拒绝。
+  指南骨架用 `node scripts/dev.js release-guide --version <ver>` 生成后人工补齐。
 - 82MB exe 上传用**后台任务**（gh release create 会超时）。
 
 ### D. 打包发布
@@ -92,12 +115,27 @@ npm 包：`disk-clean`（两个 bin：`disk-clean` 与 `disk-clean-mcp`）。
 
 ## 快速检查清单（发布前）
 
+- [ ] `node scripts/dev.js doctor` 全绿（token / 代理 / 工具链 / 审批目录）
+- [ ] `node scripts/dev.js verify` 全绿 —— **跳过的步骤要数清楚，跳过不等于通过**
 - [ ] git status 干净，ls-remote 与本地一致
 - [ ] `node --check` 全过（`npm run check` 覆盖 bin/lib/gui-web 全部模块）
-- [ ] 全量测试 11/11：`npm test`（engine-smoke / engine-edge / clean-safety / organize-safety /
-      **safety-gates** / serve-integration / **mcp-protocol** / **dsh-config** / **rules-integrity** / **version-consistency** / **ci-workflow**）
-- [ ] Release 非 draft、哈希一致（GUI setup + 引擎两处）、CI 绿
+- [ ] 全量测试通过：`npm test`（**套件清单以 `test/all.js` 为准，不要在此处写死数量**；
+      其中 `docs-consistency` 守文档漂移与"测试写了却没注册"，`approval-gate` 守发布门禁，
+      `build-fingerprint` 守指纹注入）
+- [ ] `docs/RELEASE_NOTES-v<ver>.md` + `docs/release-guide-v<ver>.md` 已写（缺则发布被拒）
+- [ ] 两侧产物已构建：`build-sea.ps1` → `build-installer.ps1`（顺序不可颠倒）
+- [ ] `node scripts/fingerprint.js check --require-clean-worktree` 通过（制品 == 源码）
+- [ ] **人已批准**：`node scripts/approval.js confirm --version <ver> --by "<名字>"`
+- [ ] Release 非 draft、6 个资产齐全、哈希一致（发布脚本内部已回下载校验）、CI 绿
 - [ ] README Option A/B/C/D 链接有效（勿用 `../README.md` 仓库外链接）
-- [ ] 版本一致性由 `test/version-consistency.js` 自动守住（7 个版本源），无需人工 grep
+- [ ] 版本一致性由 `test/version-consistency.js` 自动守住（9 个版本源），无需人工 grep
 - [ ] MCP：`node bin/disk-clean-mcp.js` 起一次，`tools/list` 返回 12 个工具
 - [ ] GUI：serve 层 API 全冒烟、headless 渲染零 JS 错误、静默安装 + GitHub 下载校验通过
+
+## 完成前验证铁律（v0.7.1 起写入 PLAYBOOK §0.1）
+
+> **没有新鲜的验证证据，不许声称完成。**
+
+- 禁用"应该 / 大概 / 似乎 / 看起来正常"作为结论；要么给命令与输出，要么说"未验证"。
+- 构建类结论必须来自**真实产物**（`build-info` 输出、`fingerprint.js check` 结果），
+  不能来自"脚本里写了这个参数"——本项目已经两次栽在"把写了当成做到了"上。

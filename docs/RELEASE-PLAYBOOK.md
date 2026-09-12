@@ -39,11 +39,22 @@
 流程要做进工具，而不是只写进文档。所有研发与发布动作走这一个入口：
 
 ```powershell
-node scripts/dev.js doctor    # 环境与凭据自检（依赖/工具链/token/git 连通性/状态目录/版本一致性）
-node scripts/dev.js verify    # 一键验证链（语法 → 12 套件 → .ps1 ASCII 铁律 → 版本一致性 → exe 端到端）
+node scripts/dev.js doctor         # 环境与凭据自检（依赖/工具链/token/git 连通性/状态目录/审批目录/版本一致性）
+node scripts/dev.js verify         # 一键验证链（语法 → 14 套件 → .ps1 ASCII → 版本 → 清单 → 指纹 → exe 端到端）
+node scripts/dev.js analyze        # 净变更行数与 S/M/L 分级（决定该走多重的验证流程）
+node scripts/dev.js changelog      # 从 git log 生成 CHANGELOG 分类骨架
+node scripts/dev.js release-guide  # 生成本次发版指南（准备清单/回滚预案/上线后验证）
 ```
 
-两者都以**退出码**表达结果（0=通过，1=有问题），可直接作为发布前门禁。
+配套脚本（发布链上的三道门）：
+
+```powershell
+node scripts/approval.js           # 发布审批门禁：无有效审批 → 退出 1；--yes/--force 被拒绝
+node scripts/fingerprint.js        # 断言制品指纹 == 当前源码（版本 + commit + 是否脏树）
+node scripts/manifest.js           # 读取 disk-clean.config.json（发布身份与产物清单，唯一事实源）
+```
+
+全部以**退出码**表达结果（0=通过，1=有问题），可直接作为发布前门禁。
 
 > **为什么在 `scripts/` 而不在 `bin/`**：`bin/disk-clean.js` 是**要发布给用户的 CLI**
 > （npm 的 `files` 只含 `bin`/`lib`，`scripts/` 既不进 npm 包也不进 SEA exe）。
@@ -51,6 +62,69 @@ node scripts/dev.js verify    # 一键验证链（语法 → 12 套件 → .ps1 
 >
 > 参考项目（`D:\学习\newCode\navigator`）的教训与移植分析见 `docs/SOP-UPGRADE-PLAN.md`，
 > 其中**最关键的一条**：只有"脚本级拦截"是真的，文档写红线 ≠ 有红线。
+
+---
+
+## 0.1 三道脚本级门禁（阶段二，2026-09-12 新增）
+
+这三件事都不再是"约定"，而是**会在错误发生时退出 1 的脚本**。它们的存在理由，
+以及它们**不**能防住什么，都必须写清楚——不写清楚就会变成假安全感。
+
+### 门禁一：发布审批（`scripts/approval.js`）
+
+```
+人：node scripts/approval.js confirm --version 0.7.1 --by "张三"    # 需手动键入版本号
+门禁：node scripts/approval.js check --version 0.7.1               # publish-release.ps1 的第 0 步
+```
+
+- 审批文件落在 `~/.disk-clean/approvals/release-<ver>.json`。
+- **审批绑定的是字节**：文件里封存每个产物的 `sha256`。批准之后重新构建 → 哈希变 → 门禁拒绝。
+  这一条是本门禁与参考项目最实质的差别（它只绑定版本号字符串）。
+- **30 分钟时效**，过期即失效，并打印实际过了多久。
+- **没有旁路**：`--yes` / `-y` / `--force` / `--skip-approval` 会被显式拒绝并说明原因。
+- 版本必须与 `lib/version.js` 的 `VERSION` 精确相等；不接受 `all` / `manual` / 通配。
+
+> ⚠️ **能力边界（不要过度声称）**：这是**本机文件门禁**。一个能在本机任意写文件的代理
+> 可以自己写这份审批文件，也可以直接改这个脚本——任何"本机文件 + 本机程序"的方案都拦不住它，
+> 这是原理性上限。要真正的边界，只能让发布凭据（`GH_TOKEN` / `NPM_TOKEN`）不出现在
+> 该代理可达的环境里。
+> 所以本门禁的定位是：**把发布从"默认动作"变成"一个刻意、留痕、与具体字节绑定的动作"**。
+
+### 门禁二：制品指纹（`scripts/build-bundle.js` + `scripts/fingerprint.js`）
+
+- 打包时用 esbuild `--define` 注入 commit / 是否脏树 / 构建时间，exe 因此自带"我从哪来"。
+  **不用生成文件**：生成物会引入"生成物是否已同步"的第四种状态。
+- `disk-clean build-info` 输出这份自述；`--version` 在制品形态下追加构建短哈希。
+- `fingerprint.js check` 断言：版本一致、commit == HEAD、构建时树是干净的。
+  `--require-clean-worktree` 额外要求当前工作树已全部提交（发布脚本用）。
+- 它拦住的典型事故：**先 build、再改代码、然后 publish**。版本号一致、哈希自洽、
+  下载回验通过，但用户拿到的 exe 里没有最后那次修改——只有内嵌 commit 能识别这种情况。
+
+### 门禁三：文档一致性（`test/docs-consistency.js`）
+
+断言的都是机器可判定的事实：套件数 / 套件是否注册进 `test/all.js` / MCP 工具数量与名单 /
+受保护段数量**且逐条枚举** / README 命令表里的命令真实存在 / 文档引用的 `scripts/*` 路径存在 /
+配置项要么接线、要么登记为未实现、且不得被当成已有能力承诺。
+
+> 这一项**比参考项目更强**：它的 doc-sync 只是一张映射表加人工自查，没有自动化检查，
+> 结果主链早已不受保护而团队并不知道。
+>
+> 附带一条同等重要的：**写了测试却忘记注册进 `test/all.js`，等于它永不运行**。
+> 这类"看起来很安全"的假绿现在会被门禁直接抓住。
+
+### 完成前验证（铁律）
+
+> **没有新鲜的验证证据，不许声称完成。**
+
+- 禁用"应该 / 大概 / 似乎 / 看起来正常"作为结论。要么给出命令与输出，要么说"未验证"。
+- "我改好了"必须附带：跑的是哪条命令、退出码是什么、输出里的关键行。
+- 构建类结论必须来自**真实产物**（`build-info` 的输出、`fingerprint.js check` 的结果），
+  不能来自"脚本里写了这个参数"。
+- 验证步骤被跳过时必须**显式说出来**，不许静默略过（`dev verify` 会打印 `skip` 并计数）。
+
+**为什么写成铁律**：本项目已经出现过两次"文档/描述承诺了不存在的东西"——
+v0.7.0 在 MCP 工具描述里承诺了三个从未被读取的配置项，而同一批修复只处理了其中一项。
+这类问题的根因不是粗心，是**把"写了"当成了"做到了"**。
 
 ---
 
@@ -371,16 +445,23 @@ disk-clean-setup-<ver>.exe.sha256
 disk-clean-win-x64.exe   （CLI/引擎 SEA，~82MB，同上后台上传）
 disk-clean-win-x64.exe.sha256
 SHA256SUMS.txt          （含引擎 + 安装器两项校验和）
-checksums.txt           （含两项 sha256/size/version 行，发布时由 publish-release.ps1 重算）
+checksums.txt           （含两项 sha256/size/version/**commit** 行，发布时由 publish-release.ps1 重算）
 ```
 
+- **这一份清单是声明式的**：`disk-clean.config.json` 的 `release.assets` 是唯一事实源，
+  `publish-release.ps1` 与 `dev.js verify` 都读它。仓库名、包名、资产名不得再散落成字面量
+  （实测曾出现 `disk-clean-win-x64` ×29、`disk-clean-setup` ×17）。
+  校验和文件自 2026-09-12 起多带一个 `commit=` 字段，于是**光看发布页就能知道产物来自哪个提交**。
 - **发布前产物核对铁律**：`Get-FileHash` 与 Release 资产 digest 一致才算发布成功；
   `dist/` 被 .gitignore 忽略，SHA256SUMS 只作 Release 资产不入库，**每次构建后必须重算**。
-- **checksums.txt 必须由发布脚本重写并上传（G53）**：CI 在 tag 推送时会用**它自己的 SEA 产物**
-  创建 Release 并上传 checksums.txt，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——
-  若不重写这个文件，Release 上就会留下一个"哈希属于已不存在的构建"的 checksums.txt。
+- **checksums.txt 必须由发布脚本重写并上传（G53）**：CI 曾用它自己的 SEA 产物创建 Release 并上传
+  checksums.txt，而 `publish-release.ps1` 随后把 exe 覆盖成本地构建——若不重写这个文件，
+  Release 上就会留下一个"哈希属于已不存在的构建"的 checksums.txt。
   v0.5.0 实际发生过：release 资产写着 `sha256=72ce9f21…`，而 exe 是 `3cbdc188…`。
-  现已在第 3 步重算、第 4 步上传，并**回到 API 下载内容断言哈希一致**（只比 size 抓不到这个）。
+  现已重算、上传，并**回到 API 下载内容断言哈希一致**（只比 size 抓不到这个）。
+- **制品指纹断言（S9）**：上传前跑 `scripts/fingerprint.js check`，要求 exe 自述的 commit
+  等于 HEAD、且构建时树是干净的。它拦住的是"先构建、再改代码、再发布"——
+  那种情况下版本号一致、哈希自洽、下载回验也通过，但用户拿到的 exe 里没有最后那次修改。
 - 上传一律后台任务 + `--clobber` 覆盖；**上传期间不要重建源文件**（会破坏半传文件），
   需重传先 kill 上传 job 再重建再传。
 - Release 必须**非 draft**；CI workflow 手动验证（`gh workflow run` 在 CI 修复后重新触发，不删 tag 重推）。
@@ -391,14 +472,33 @@ checksums.txt           （含两项 sha256/size/version 行，发布时由 publ
 
 - 测试代码**禁止本机绝对路径**（CI 目录 `D:\a\...`），用仓库内相对路径 + 运行时自建测试树。
 - 语法检查覆盖**全部** bin/lib/*.js（不只 4 个核心）。
+- **CI 不创建 Release（2026-09-12 起）**。此前 `push tags: v*` 会走 `softprops/action-gh-release`
+  自动发布一个未获批、且只有引擎（没有 GUI 安装器）的半成品 Release——
+  等于 `git push --tags` 就能绕过审批门禁。**一个可以被 `git push` 绕过的门禁不是门禁。**
+  现在 CI 只构建、断言指纹、上传 workflow artifact；job 的 `permissions` 相应降到 `contents: read`。
+  发布只能由 `scripts/publish-release.ps1` 完成。
+- `npm ci` 排在测试**之前**：产品测试是零依赖的，但 `test/build-fingerprint.js` 必须真的打包一次
+  才能证明指纹注入生效（只断言"脚本里写了 --define"抓不到写错的 flag 名）。
 
 ### 4.5 发布检查清单
 
+按顺序，任一步失败即停止：
+
+- [ ] `node scripts/dev.js doctor` 全绿（token / 代理 / 工具链 / 审批目录）
+- [ ] `node scripts/dev.js verify` 全绿（**跳过项要数清楚，跳过的步骤不算证据**）
 - [ ] `git status` 干净、`git log` 与 `ls-remote origin master` 一致
-- [ ] Release 非 draft、资产哈希与本地一致（含 GUI setup 与引擎两处 sha）
+- [ ] 版本号已 bump 且 `test/version-consistency.js` 通过（9 个源）
+- [ ] `docs/RELEASE_NOTES-v<ver>.md` 与 `docs/release-guide-v<ver>.md` 都已写
+      （缺任一个，`publish-release.ps1` 会直接拒绝）
+- [ ] 两侧产物已构建：`build-sea.ps1` → `build-installer.ps1`（顺序不可颠倒）
+- [ ] `node scripts/fingerprint.js check --require-clean-worktree` 通过
+- [ ] **人已批准**：`node scripts/approval.js confirm --version <ver> --by "<名字>"`
+- [ ] `publish-release.ps1 <ver> -PublishNpm` 跑完且末尾打印 `Publish verified`
+- [ ] Release 非 draft、6 个资产齐全、哈希与本地一致（脚本内部已回下载校验）
+- [ ] 下载 exe 后 `build-info` 的 commit == 本次 tag 指向的 commit
 - [ ] CI 最新 run 成功
 - [ ] README（Option A/B/C/D 链接）+ CHANGELOG + ROADMAP 无坏链接
-- [ ] `npm test` 含 `version-consistency` 通过（版本漂移在发布前就被拦住，不再靠人工 grep）
+      （其中文档与实现的一致性已由 `test/docs-consistency.js` 自动守住，不必人工 grep）
 
 ---
 
