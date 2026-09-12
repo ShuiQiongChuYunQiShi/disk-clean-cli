@@ -185,7 +185,7 @@ disk-clean mcp
 | 命令 | 说明 |
 |---|---|
 | `scan [roots...]` | 全盘扫描并给出智能建议（散落目录、重复文件、长期未用大文件、垃圾、空目录）。生成 `report.json` + `report.md`。 |
-| `report [file]` | 渲染已保存的报告（终端 + Markdown）。 |
+| `report [file]` | 渲染已保存的报告（终端 + Markdown）。`--history` 列出历史归档（每次扫描自动归档、保留最近 N 份，可用 `retention.reports` 配置；归档为 gzip，读取时自动解压）。 |
 | `organize plan` | 生成整理计划：散落目录 → `<盘符>:\整理区\<分类>\`。`--include-program` 额外加入程序/游戏目录并提示快捷方式修复风险。 |
 | `organize apply [file]` | 执行计划。**默认 dry-run，除非加 `--yes`。** 程序目录必须带 `fixShortcuts`；快捷方式会被重写，回滚时还原。 |
 | `organize rollback` | 撤销上一批（移动 + 快捷方式）。**默认 dry-run，除非加 `--yes`。** |
@@ -219,6 +219,7 @@ disk-clean mcp
 ```
 audit.jsonl            # 审计日志
 report.json / .md      # 最新报告
+reports/               # 报告历史（每次扫描一份 gzip 归档，只保留最近 N 份）
 organize-map.json      # 回滚映射
 organize-plan.json     # 最近一次计划
 ```
@@ -262,7 +263,7 @@ organize-plan.json     # 最近一次计划
 
 ```powershell
 npm run check     # 所有模块语法检查
-npm test          # 全量测试（16 个套件，含 MCP 协议 / 规则完整性 / 安全闸门 / 文档一致性回归）
+npm test          # 全量测试（17 个套件，含 MCP 协议 / 规则完整性 / 安全闸门 / 文档一致性回归）
 npm run mcp       # 本地起一个 MCP server
 powershell -File scripts\build-sea.ps1   # 构建 exe + sha256（含构建指纹）
 ```

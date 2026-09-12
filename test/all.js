@@ -25,6 +25,7 @@ const suites = [
   'build-fingerprint.js',
   'approval-gate.js',
   'report-provenance.js',
+  'report-history.js',
 ];
 
 let failed = 0;

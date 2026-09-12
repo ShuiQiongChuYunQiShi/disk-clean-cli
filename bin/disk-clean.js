@@ -179,6 +179,23 @@ async function listDrives() {
 
 // ---------- 命令: report ----------
 async function cmdReport(o) {
+  // T3：报告历史入口。归档存在却没有入口，等于没做——那正是 v0.7.0 挨批的那类问题
+  // （配置里写了、工具描述里承诺了，代码里从未实现）。
+  if (o.flags.history) {
+    const items = require('../lib/report.js').listArchives();
+    if (!items.length) {
+      console.log(col(C.gray, '（还没有报告历史。每次扫描都会自动归档一份到 ' + audit.reportsDir() + '）'));
+      return 0;
+    }
+    console.log(col(C.cyan, '── 报告历史（新 → 旧，保留最近 ' + audit.maxReports() + ' 份）──'));
+    for (const it of items) {
+      console.log('  ' + (it.generatedLocal || '未知时间').padEnd(19) +
+        fmtBytes(it.bytes).padStart(10) + '  ' + it.name);
+    }
+    console.log('');
+    console.log(col(C.gray, '打开某一份：disk-clean report <文件名>（归档为 gzip，读取时自动解压）'));
+    return 0;
+  }
   const p = o._[0] || audit.reportFile();
   const rep = audit.readJson(p);
   if (!rep) return fail('无法读取报告: ' + p + '（请先运行 scan）');
@@ -207,7 +224,7 @@ async function cmdReport(o) {
   // 生成 markdown
   try {
     const md = buildMarkdown(rep, rep.elapsedMs || 0);
-    const mdPath = p.replace(/\.json$/i, '') + '.md';
+    const mdPath = p.replace(/\.json(\.gz)?$/i, '') + '.md';
     fs.writeFileSync(mdPath, md, 'utf8');
     console.log(col(C.green, '✔ Markdown 报告: ') + mdPath);
   } catch (e) {
@@ -681,6 +698,7 @@ function help() {
   console.log('  scan [roots...]            扫描磁盘/目录，生成报告 (JSON+Markdown)');
   console.log('                              示例: disk-clean scan C:\\ D:\\');
   console.log('  report [file]              读取报告并渲染 (终端 + Markdown)');
+  console.log('      --history              列出报告历史（每次扫描自动归档，保留最近 N 份）');
   console.log('  organize plan              生成整理计划 (目录→整理区, 可回滚)');
   console.log('      --include-program      追加程序/游戏目录候选(⚠快捷方式)');
   console.log('  organize apply [file]      执行整理 (默认预览, --yes 执行)');

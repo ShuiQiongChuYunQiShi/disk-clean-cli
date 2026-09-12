@@ -188,7 +188,7 @@ disk-clean mcp
 | Command | Description |
 |---|---|
 | `scan [roots...]` | Full scan with smart suggestions (loose dirs, duplicates, stale large files, junk, empty dirs). Emits `report.json` + `report.md`. |
-| `report [file]` | Render a saved report (terminal + Markdown). |
+| `report [file]` | Render a saved report (terminal + Markdown). `--history` lists the archived reports (every scan is archived and the most recent N are kept, configurable via `retention.reports`; archives are gzip and are read back transparently). |
 | `organize plan` | Generate organize plan: loose dirs → `<drive>:\整理区\<category>\`. `--include-program` adds program/game dirs with a shortcut-fix warning. |
 | `organize apply [file]` | Execute a plan. **Dry-run unless `--yes`.** Program dirs require `fixShortcuts`; shortcuts are rewritten and restored on rollback. |
 | `organize rollback` | Undo the last batch (moves + shortcuts). **Dry-run unless `--yes`.** |
@@ -223,6 +223,7 @@ State files live in `~/.disk-clean/`:
 ```
 audit.jsonl            # audit log
 report.json / .md      # latest report
+reports/               # report history (one gzip archive per scan, newest N kept)
 organize-map.json      # rollback mapping
 organize-plan.json     # last plan
 ```
@@ -266,7 +267,7 @@ See [docs/demo-report.md](docs/demo-report.md) for a full Markdown report sample
 
 ```powershell
 npm run check     # syntax check all modules
-npm test          # full suite (16 suites, incl. MCP protocol + rules integrity + safety gates + docs consistency)
+npm test          # full suite (17 suites, incl. MCP protocol + rules integrity + safety gates + docs consistency)
 npm run mcp       # start an MCP server locally
 powershell -File scripts\build-sea.ps1   # build exe + sha256 (adds the build fingerprint)
 ```
