@@ -60,13 +60,15 @@
 | 一键验证链 | ✅ 7 步全过、**0 跳过** | `node scripts/dev.js verify`：语法 48 文件 / 15 套件 / `.ps1` ASCII 5 个 / 版本一致性 9 源 / 清单一致性 / 制品指纹 / exe 端到端 |
 | 制品指纹（真实产物） | ✅ | `dist\disk-clean-win-x64.exe build-info` → `commit=3589147 dirty=false`，等于 HEAD |
 | 脏树会被拒绝 | ✅ | 制造一个未提交文件后 `fingerprint.js check --require-clean-worktree` → exit 1，理由："有未提交改动（发布时不允许：tag 指向的提交不含这些改动）" |
-| 发布门禁拦截 | ✅ | 无审批时 `publish-release.ps1 0.7.0` → **exit 1**，且输出中**无任何 preflight / tag / release 行**，即零副作用、未触网 |
+| 审批门禁拦截 | ✅ | 无审批时 `publish-release.ps1 0.7.0` → **exit 1**，且输出中**无任何 preflight / tag / release 行**，即零副作用、未触网 |
+| 审批门禁**正向放行** | ✅ | 临时审批目录（`DSK_APPROVAL_DIR`）下 `confirm` → `check` **exit 0**（"2 件产物哈希一致"）；随后 `publish-release.ps1` **越过了第 0 步**，停在下一道门（缺 `docs/release-guide-v0.7.0.md`）。门禁必须会放行，否则它就只是"永远说不" |
+| 发布前置文档门禁 | ✅ | 同上：缺少 notes 或 guide 时发布被拒，并打印生成骨架的命令 |
 | 审批门禁行为 | ✅ 19 项断言 | `node test/approval-gate.js`（放行 2 / 拦截 17） |
 | 环境自检 | ⚠️ **2 项阻塞** | `node scripts/dev.js doctor` → `GH_TOKEN 未设置`、`NPM_TOKEN 未设置`（其余全绿：Node 22.21.1 / esbuild / postject / .NET 8.0.424 / Inno Setup 6 / gh / 代理 / 状态目录 / 审批目录 / 版本一致性） |
 | 版本号 bump 到 0.7.1 | ☐ | 当前源码版本仍为 **0.7.0**，bump 后需重跑 `dev verify` |
 | `docs/RELEASE_NOTES-v0.7.1.md` 已写 | ☐ | **发布前必须补**（缺则该文件会让发布脚本直接拒绝） |
 | `CHANGELOG.md` 已补本版条目 | ☐ | **发布前必须补**；骨架可用 `node scripts/dev.js changelog` 生成 |
-| CI 最新 run 绿 | ☐ | run 链接 |
+| CI 最新 run | ✅ | `build` @ `ba1e2b6` **success** — [run 34679620396](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/actions/runs/34679620396)（这是流程建设批次的 run；发布时须对本 tag 的 run 重新确认） |
 
 > 注：`dev verify` 打印的"跳过"步骤不计入通过，必须数清楚。本次 7 步中 0 跳过，
 > 是**因为 exe 已重建**——若 `dist/` 里没有产物，指纹与端到端两步会被显式标为 skip 并在汇总里列出。
