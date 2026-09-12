@@ -228,6 +228,22 @@ it('审批渠道：旧文件视为交互、--session 如实标注、乱填值归
     '渠道匹配区分大小写，避免拼写差异产生"看起来是但又不太是"的第三种状态');
 });
 
+it('发布脚本：资产名必须展开 ${version} 占位符（v0.7.1 已发布缺陷）', () => {
+  // v0.7.1 实际发出去的文件里带着字面量 `disk-clean-setup-${version}.exe`：
+  // 清单的 name 和 path 都写了 ${version} 占位符，但脚本只展开了 path。
+  // 后果有两层——远端资产查不到（报成一句莫名其妙的 "remote setup size != local"），
+  // 以及**把未展开的占位符写进了已发布的 checksums.txt 与 SHA256SUMS.txt**。
+  // 后者才是真问题：用户拿到的是自相矛盾的校验文件。
+  // 所以这里静态禁止"直接拿 $xxxAsset.name 当远端名"，必须经 ManifestName 展开。
+  const fs = require('fs');
+  const src = fs.readFileSync(path.join(ROOT, 'scripts', 'publish-release.ps1'), 'utf8');
+  const offenders = (src.match(/=\s*\$\w+Asset\.name/g) || []);
+  assert(offenders.length === 0,
+    '发布脚本里出现了未展开的资产名赋值（' + offenders.join(', ') +
+    '）——必须写成 `ManifestName $xxxAsset`，否则 ${version} 会原样写进发布产物');
+  assert(/function ManifestName/.test(src), '发布脚本应提供 ManifestName 来展开资产名');
+});
+
 it('门禁位置：approval check 必须排在任何写操作之前', () => {
   // 门禁"存在"和门禁"在正确的位置"是两件事。若有人把审批检查挪到创建 tag 之后，
   // 门禁依然会拦住本次发布，但**已经在远端留下了 tag**——不可逆的副作用先发生了。

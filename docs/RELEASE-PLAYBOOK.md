@@ -671,6 +671,29 @@ checksums.txt           （含两项 sha256/size/version/**commit** 行，发布
     ② 用返回码单独判定成功。修法：调用前置 `$global:LASTEXITCODE = $null`、null 视为失败，
     且**代理尝试必须先通过 local==remote 校验才算成功**，否则落入直连分支。
     排查用：`git -c http.proxy= -c https.proxy= push origin master`（绕过代理直连）。
+42. **npm 发布状态要用「具体版本 + dist-tags」交叉核对，且必须绕开 CDN 缓存**（2026-09-12 实测）：
+    v0.7.1 发布之后，`npm view disk-clean dist-tags` 与带 `?t=<ticks>` 的
+    `registry.npmjs.org/disk-clean` **都仍然返回旧版本**（`latest: 0.7.0`），
+    一度被误判成"发布没成功"，甚至去查了 `npm stage list`（返回空）。
+    真相是 npm 的 CDN 缓存了 packument。可靠的查法：
+
+    - **具体版本路径** `registry.npmjs.org/<pkg>/<ver>` 能立刻看到新版本（缓存键不同）；
+    - `npm view <pkg> dist-tags --prefer-online` 会取最新；
+    - **终极确认是下载 tarball 实检**（`registry.npmjs.org/<pkg>/-/<pkg>-<ver>.tgz`），
+      连包内文件清单也一并核（本项目要求 `scripts/` 与 `gui/` **不得**出现在 npm 包里）。
+
+    **推论：「查不到」不等于「没发布」。** 先分清是缓存还是真失败，再决定要不要重发——
+    重发会拿到 `E409 Cannot publish over previously published version`，
+    而那反倒成了"其实已经发布"的证据。
+43. **测试必须隔离它的全部输入——环境变量也是输入**（2026-09-12 实测）：
+    凭据测试只隔离了 HOME 与 `GH_TOKEN`，本地与 CI 一直是绿的，
+    却在 `npm publish` 时失败：因为发布脚本会在进程内注入 `NPM_TOKEN`
+    （`~/.npmrc` 用 `${NPM_TOKEN}` 取值），npm 的子进程继承了它，
+    而"环境变量优先"这条规则让断言读到了**真实 token**。两条教训：
+    ① **只在发布那一刻才暴露的测试失败，说明测试依赖了外部环境**；
+    ② 修完后必须用**导致失败的那个条件**复跑验证（这里是先注入同样的环境变量再跑），
+       而不是"改完看着对"。同类问题在 T1（测试写用户真实 `~/.disk-clean`）上出现过一次——
+       那次是"文件路径要隔离"，这次是"环境变量也要隔离"。
 
 ### 发布脚本的宿主差异（v0.5.0 实测增补）
 

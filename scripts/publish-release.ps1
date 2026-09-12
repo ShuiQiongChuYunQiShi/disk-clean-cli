@@ -50,8 +50,16 @@ $repo = $manifest.repo
 # NOTE: $apiHeaders is built later, right after the credential block. Building it here
 # would capture an empty GH_TOKEN whenever the value comes from the credentials file.
 
-# Asset paths are declared once, in the manifest, with a ${version} placeholder.
-function ManifestPath($asset) { return ($asset.path -replace '\$\{version\}', $ver) }
+# The manifest declares names and paths with a ${version} placeholder, and BOTH must be
+# expanded. v0.7.1 shipped a defect where only the path was: the asset-name lookup then
+# compared "disk-clean-setup-${version}.exe" against the real name, failed to find the
+# installer, and - worse - wrote that literal placeholder into the published
+# checksums.txt and SHA256SUMS.txt. The only symptom was a confusing
+# "remote setup size != local", which is why this is now gated by a static assertion
+# in test/approval-gate.js.
+function Expand-Version([string]$s) { return ($s -replace '\$\{version\}', $ver) }
+function ManifestPath($asset) { return (Expand-Version $asset.path) }
+function ManifestName($asset) { return (Expand-Version $asset.name) }
 $engineAsset = $manifest.release.assets | Where-Object { $_.role -eq 'engine' } | Select-Object -First 1
 $setupAsset = $manifest.release.assets | Where-Object { $_.role -eq 'installer' } | Select-Object -First 1
 if (-not $engineAsset) { Fail "disk-clean.config.json declares no asset with role=engine" }
@@ -247,8 +255,8 @@ Write-Output ("fingerprint OK: v$($fpJson.info.version) commit=$($fpJson.info.co
 $engineSha = (Get-FileHash $engineExe -Algorithm SHA256).Hash.ToLower()
 $setupSha = (Get-FileHash $setupExe -Algorithm SHA256).Hash.ToLower()
 $buildCommit = $fpJson.info.commit
-$engineName = $engineAsset.name
-$setupName = $setupAsset.name
+$engineName = ManifestName $engineAsset
+$setupName = ManifestName $setupAsset
 $sumsAsset = $manifest.release.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' } | Select-Object -First 1
 $ckAsset = $manifest.release.assets | Where-Object { $_.name -eq 'checksums.txt' } | Select-Object -First 1
 if (-not $sumsAsset -or -not $ckAsset) { Fail "disk-clean.config.json must declare SHA256SUMS.txt and checksums.txt" }

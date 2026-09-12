@@ -69,8 +69,14 @@ function runCli(args, home) {
     {
       const cred = require('../scripts/credentials.js');
       const credFile = cred.credentialsFile();
-      const savedEnv = process.env.GH_TOKEN;
+      // 隔离**两个**凭据环境变量，不只是 HOME。教训：这个测试最初只删了 GH_TOKEN，
+      // 于是本地一直是绿的，却在 `npm publish` 时失败——因为发布脚本会在进程内注入
+      // NPM_TOKEN（~/.npmrc 需要它），npm 的子进程继承了它，"环境变量优先"这条规则
+      // 就让断言读到了真实 token。也就是说：**测试必须隔离它的全部输入**——
+      // 文件路径只是其中一类，环境变量也是。这个失败偏偏只在发布那一刻出现。
+      const savedEnv = { GH_TOKEN: process.env.GH_TOKEN, NPM_TOKEN: process.env.NPM_TOKEN };
       delete process.env.GH_TOKEN;
+      delete process.env.NPM_TOKEN;
       try {
         assert(!fs.existsSync(credFile), '隔离 HOME 下不应已有凭据文件（否则测试会污染真实凭据）');
         assert(!cred.ghToken().value, '没有凭据时应返回空值');
@@ -109,7 +115,8 @@ function runCli(args, home) {
         assert(!cred.save({ GH_TOKEN: '   ', NPM_TOKEN: '' }).ok, '全空输入应拒绝写入');
       } finally {
         try { fs.unlinkSync(credFile); } catch (e) { /* ignore */ }
-        if (savedEnv) process.env.GH_TOKEN = savedEnv;
+        if (savedEnv.GH_TOKEN) process.env.GH_TOKEN = savedEnv.GH_TOKEN;
+        if (savedEnv.NPM_TOKEN) process.env.NPM_TOKEN = savedEnv.NPM_TOKEN;
       }
     }
     n++;
