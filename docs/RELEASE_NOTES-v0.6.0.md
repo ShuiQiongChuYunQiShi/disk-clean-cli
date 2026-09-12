@@ -153,14 +153,11 @@ npm install -g disk-clean
 
 ## 已知问题 / 未完成
 
-- 🔴 **npm 渠道停留在 0.4.1，而该版本含本版修复的 P0**：`npm install -g disk-clean` 装到的是
-  2026-08-25 发布的 0.4.1。实检其 tarball 确认：`hardlinkGroup` 不检查 `approx`、不调 `guard`、
-  无 `lib/guard.js`、无 `lib/mcp/tools.js` —— 即 §「最重要的修复」里的 P0 与 A2/A3 全部存在。
-  **v0.6.0 尚未发布到 npm**；在解决前请使用本页的 Release 资产（EXE / 安装器）。
-- 连带后果：README 的 **Option C（MCP）对 npm 用户暂不可用** —— 0.4.1 没有 `mcp` 子命令、
-  没有 `disk-clean-mcp` bin，`npx -y disk-clean mcp` 会失败。
-  （`~/.npmrc` 里的 `_authToken` 已失效，`npm whoami` 返回 401。）
-- 处置计划见 `docs/PLAN-v0.7.md` §4。
+- **npm 渠道已同步**：npm 曾自 2026-08-25 起停留在 **0.4.1**（含本版修复的 P0 且无 MCP server）。
+  **v0.6.0 已于 2026-09-11 发布到 npm**，`dist-tags.latest = 0.6.0`，包内同时含
+  `disk-clean` 与 `disk-clean-mcp` 两个 bin；`npx -y disk-clean --version` → `v0.6.0`，
+  `npx -y disk-clean mcp` 已端到端验证返回 12 个工具。
+  **0.4.1 之前的安装应升级**：`npm install -g disk-clean@latest`。
 - `CHANGELOG.md` 缺少 **0.2.0 / 0.3.0 / 0.3.1** 三个版本条目（有 tag 与 Release，无段落记录）。
 - 锐评计划的**后续批次尚未实施**，已整理为 `docs/PLAN-v0.7.md`（含优先级与验收标准）：
   - **B1/B2 性能**：`dedup` 的文件 `stat` 串行、每个 victim 单独 spawn 一次 PowerShell

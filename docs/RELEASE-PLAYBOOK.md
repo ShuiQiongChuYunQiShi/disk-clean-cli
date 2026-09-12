@@ -475,6 +475,22 @@ checksums.txt           （含两项 sha256/size/version 行，发布时由 publ
     核对手法：`Invoke-RestMethod https://registry.npmjs.org/<pkg>` 看 `dist-tags`，
     必要时下载 tarball 实检（`registry.npmjs.org/<pkg>/-/<pkg>-<ver>.tgz`）。
     **推论：发布渠道的状态必须逐条实证，"我记得没发过"不算。**
+    （已于同日 0.6.0 发布修正；发布后同样要**实测** `dist-tags` 与真实命令，
+    `npx -y disk-clean mcp` 通过才算 npm 这一侧真的可用。）
+38. **能认证 + 能读 + 不能写 = 权限问题，不是凭据问题**（npm 403 排查法）：
+    `npm whoami` 与 `npm owner ls` 都成功、`npm publish` 却返回
+    `E403 You may not perform that action with these credentials`，
+    说明 token 有效但缺发布权限，去 **Packages and scopes → Permissions** 查：
+    必须是 **`Read and write (publish and stage)`**；`Read-only`、`No access`、
+    **以及 `Read and write (stage only)`** 在直接发布时给出的 403 **症状完全一样**，
+    容易误判成别的原因。另：token 创建页的 **Organizations** 区块
+    **只管组织成员/团队设置、明确不授予发包权限**，应设为 `No access`——
+    把它设成别的值会弹"必须选择一个组织"，与发包毫无关系。
+    存放建议：token 放环境变量，`~/.npmrc` 写 `_authToken=${NPM_TOKEN}`，不落明文文件。
+39. **`npm publish` 的规范化警告要清干净**：`bin` 路径写 `./x.js` 与 `repository.url`
+    缺 `git+` 前缀都会让 npm 在每次发布时打印 `was cleaned` / `was normalized`
+    （`bin` 那条连官方文档示例都会触发，见 npm/cli#7302）。
+    交付判据：`npm publish --dry-run` **零 warn** —— 发布的清单与测过的清单一致。
 37. **`push.ps1` 的"假成功"会让回退永不执行**（G55）：代理上的 `git push` 实际没推上去，
     脚本却打印 `Push succeeded`，于是 **direct 回退分支从未运行**（它只在返回码非 0 时才走），
     只有第 2 步校验发现了异常。两个成因：① 未在调用前清空 `$LASTEXITCODE`——

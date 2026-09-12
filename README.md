@@ -61,13 +61,6 @@ New `test/safety-gates.js` (11 suites total, 23 assertion groups) guards every i
 
 ## Install
 
-> ⚠️ **The npm package is stale.** `disk-clean@0.4.1` (published 2026-08-25) is still what
-> `npm install -g disk-clean` and `npx -y disk-clean` resolve to, and it predates both the MCP
-> server **and the v0.6.0 security fixes** — it still contains a hardlink-merge defect that can
-> silently and irreversibly destroy file contents. Until v0.6.0 is published to npm, **use the
-> GitHub Release assets (Option A / D)**, or install from source. Tracked in
-> [docs/PLAN-v0.7.md](docs/PLAN-v0.7.md) §4.
-
 ### Option A — single EXE (recommended)
 
 Download `disk-clean-win-x64.exe` from [Releases](https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases) — no Node.js required.
@@ -79,20 +72,17 @@ Download `disk-clean-win-x64.exe` from [Releases](https://github.com/ShuiQiongCh
 ### Option B — via Node.js (>= 18.15)
 
 ```powershell
-git clone https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli.git
-cd disk-clean-cli && npm install -g .   # or: npm link
-
-# npm registry copy is stale (0.4.1) until v0.6.0 is published:
-#   npm install -g disk-clean
+npm install -g disk-clean    # or: git clone + npm link
 disk-clean scan D:\
 ```
+
+> The npm channel was stuck on 0.4.1 (which predates both the MCP server and the v0.6.0
+> security fixes) from 2026-08-25 until **0.6.0 was published on 2026-09-11**. If you installed
+> before then, upgrade: `npm install -g disk-clean@latest`.
 
 ### Option C — MCP server (AI-driven, works with any client)
 
 `disk-clean mcp` starts a standard **MCP (Model Context Protocol)** server that exposes 12 disk tools over stdio. Zero dependencies — no SDK, no build step.
-
-> Requires v0.5.0 or later. The npm copy (0.4.1) has no MCP server, so `npx -y disk-clean mcp`
-> fails today — use the absolute path to the repo/source form until npm is updated.
 
 ```jsonc
 // DeepSeek Harness / Claude Desktop / Cursor — same config everywhere

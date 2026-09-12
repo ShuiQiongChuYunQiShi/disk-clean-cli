@@ -104,59 +104,66 @@
 
 ---
 
-## 4. npm 渠道（独立于 v0.7，需单独决策）
+## 4. npm 渠道 —— ✅ 已于 2026-09-11 解决
 
-**现状**：npm `dist-tags.latest` = **0.4.1**（2026-08-25 发布）。实检该 tarball 确认：
+**结论**：`disk-clean@0.6.0` 已发布，`dist-tags.latest` 从 0.4.1 更新为 0.6.0。
 
-```
-scan 会标 approx:true   : true
-hardlinkGroup 检查approx: false   ← P0：抽样组可被合并（不可逆数据破坏）
-hardlinkGroup 调 guard  : false   ← A2
-lib/mcp/tools.js 存在   : false   ← 完全没有 MCP server
-lib/guard.js 存在       : false   ← A3：尚无单一闸门，仍是 5 份副本
-```
+验证记录（发布后实测）：
 
-**两个具体后果**：
+| 检查 | 结果 |
+|---|---|
+| `registry.npmjs.org/disk-clean` → `dist-tags.latest` | `0.6.0` |
+| 已发布版本 | `0.4.1, 0.6.0` |
+| 0.6.0 的 `bin` | `{disk-clean, disk-clean-mcp}` 两个都在 |
+| `npx -y disk-clean --version` | `disk-clean v0.6.0` |
+| **`npx -y disk-clean mcp`** | ✅ 起来并返回 **12 个工具**（README Option C 从此对 npm 用户成立） |
+| 发布前闸门 | `prepublishOnly` → `node test/all.js` **11/11 passed** |
 
-1. `npm install -g disk-clean` 装到的是**含 P0** 的版本。
-2. README 的 **Option C 对 npm 用户不可用** —— `npx -y disk-clean mcp` 会失败，因为 0.4.1 没有
-   `mcp` 子命令、没有 `disk-clean-mcp` bin、没有 MCP server。该配置目前只对源码/EXE 用户成立。
+**发布时发现并修掉的两个 npm 噪音**（`package.json`，commit `253096b`）：
+`bin` 路径的 `./` 前缀与 `repository.url` 缺 `git+` 前缀都会让 npm 在每次发布时打印
+"was cleaned / was normalized" 警告（`bin` 那条连 npm 官方文档的示例都会触发，见
+[npm/cli#7302](https://github.com/npm/cli/issues/7302)）。`npm publish --dry-run` 现已零警告。
 
-**处置选项**（择一）：
+### 为什么曾卡住（留档，避免重犯）
 
-| 选项 | 代价 | 效果 |
-|---|---|---|
-| **发布 0.6.0** | 需 npm 凭据 + OTP | 一次性解决；同时让 `npx -y disk-clean mcp` 真正可用 |
-| `npm deprecate disk-clean@0.4.1 "<原因>"` | 需 npm 凭据，**无需发布新版本** | 安装时显示警告，立刻降低用户风险 |
-| 仅在 README 标注 | 零代价 | 只覆盖读 README 的人 |
+两轮 token 才成功，值得记录**失败特征**：
 
-> ⚠️ 无论选哪个，`docs/RELEASE_NOTES-v0.6.0.md` §已知问题 里"npm 首发仍未执行"这句
-> **是错的**（0.4.1 早已发布），必须一并更正 —— 见 §5。
+| 现象 | 原因 |
+|---|---|
+| `npm whoami` 报 401 | `~/.npmrc` 里的 `_authToken` 早已失效 |
+| `whoami`、`owner ls` 通过，但 `npm publish` 返回 **E403** `You may not perform that action with these credentials` | token 只读：`Packages and scopes → Permissions` 未给 **`Read and write (publish and stage)`**（`Read-only`、`No access`、以及**`stage only`** 全部会在直接发布时给 403，症状完全一样） |
+| token 创建页提示"必须选择一个组织" | 把 **Organizations** 区块的 Permissions 改成了非 `No access`；该区块**只管组织成员/团队设置，明确不授予发包权限**，应设为 `No access` |
 
-**当前凭据状态（2026-09-11 核实）**：`~/.npmrc` 中存在 `//registry.npmjs.org/:_authToken`，
-但 `npm whoami` 返回 **401 Unauthorized**，即该 token **已失效**。发布前需重新提供有效 token 或 `npm login`。
+**能认证 + 能读 + 不能写 = 权限问题，不是凭据问题**——这个组合可以立刻区分两类故障。
+
+> 凭据存放方式（本次采用）：`NPM_TOKEN` 存 User 作用域环境变量，`~/.npmrc` 写
+> `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` —— token 不落明文文件。
+
+### 0.4.1 的遗留
+
+npm 上仍存在 `0.4.1`（含 P0）。`latest` 已指向 0.6.0，正常情况下不会再被安装。
+如需更彻底，可执行 `npm deprecate disk-clean@0.4.1 "<原因>"` 让显式指定该版本安装时收到警告；
+**非必需**。
 
 ---
 
-## 5. 随本计划一并需要修正的文档事实错误
+## 5. 文档事实错误（已全部修正）
 
-| 文件 | 错误 | 更正 |
+| 文件 | 原错误 | 现状 |
 |---|---|---|
-| `docs/RELEASE_NOTES-v0.6.0.md` §已知问题 | "npm 首发仍未执行" | 改为"npm `latest` 停在 0.4.1（含 P0、无 MCP），v0.6.0 尚未发布到 npm" |
-| `CHANGELOG.md` `[0.6.0]` | 同上口径 | 同步更正 |
-| `README.md` Option B / Option C | 未提示 npm 渠道落后于仓库 | 加一句：npm 渠道当前停留在 0.4.1，建议用 GitHub Releases 的 EXE/安装器；待发布后在 v0.7 移除此提示 |
-| `docs/OPTIMIZATION-PLAN.md` | 曾把 npm 首发列为未完成项 | 该文件已是历史归档，无需改；但引用它时勿再当作当前待办 |
+| `docs/RELEASE_NOTES-v0.6.0.md` §已知问题 | "npm 首发仍未执行" | ✅ 已改为记录 npm 曾停 0.4.1、现已同步 0.6.0 |
+| `CHANGELOG.md` | 同上口径 | ✅ 已同步更正 |
+| `README.md` / `README.zh-CN.md` | Option B/C 未提示 npm 落后；Option C 对 npm 用户不可用 | ✅ 警告已撤除，并补上"0.6.0 之前装过的请升级" |
+| `docs/OPTIMIZATION-PLAN.md` | 曾把 npm 首发列为未完成项 | 该文件已是历史归档，无需改；引用时勿当作当前待办 |
 
 ---
 
 ## 6. 排期建议
 
 ```
-v0.6.0 ✅ 已发布（安全冲刺）
+v0.6.0 ✅ 已发布（安全冲刺，GitHub + npm 双渠道）
    ↓
 v0.7 质量周   —— 1.1 性能 → 1.2 一致性 → 1.3 承诺兑现 → 1.4 健壮性 → 1.5 文档债
-   ↓
-npm 渠道处置  —— 可与 v0.7 并行（仅需凭据，不阻塞代码）
    ↓
 v0.8 架构季   —— 需重新评估后才启动（§3）
 ```

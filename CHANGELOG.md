@@ -5,8 +5,9 @@
 > GitHub Releases 与 `docs/RELEASE_NOTES-v0.2.0.md`；补写需基于当时的提交内容，
 > 不要凭印象编造。（补写已列入 `docs/PLAN-v0.7.md` 的 v7-8。）
 >
-> 另注：**npm 渠道的 `latest` 停在 0.4.1**（2026-08-25 发布），该版本含 v0.6.0 修复的 P0
-> 且没有 MCP server；v0.6.0 尚未发布到 npm。处置见 `docs/PLAN-v0.7.md` §4。
+> 另注：npm 渠道曾在 2026-08-25 → 2026-09-11 期间停留在 **0.4.1**（含 v0.6.0 修复的 P0、
+> 且没有 MCP server）。**0.6.0 已于 2026-09-11 发布到 npm**，`dist-tags.latest` 已更新，
+> `npx -y disk-clean mcp` 亦经端到端验证可用。
 
 ## [0.6.0] - 2026-09-11
 
