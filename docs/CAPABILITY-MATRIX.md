@@ -72,7 +72,9 @@
 | 1 | **GUI 没有报告历史端点**：`report --history` 与 MCP 的 `section=history` 都有，`lib/serve.js` 没有对应端点 | 桌面端用户无法回看历史报告，而报告是全局单例、每次扫描覆盖 | 待补（GUI 侧接线，`lib/report.js` 已提供 `listArchives()`） |
 | 2 | **GUI 前端不调用 `/api/report`**：端点存在，但 `gui/web/app.js` 从不请求它 | 打开 GUI 看不到上一次的扫描结果；只有刚扫完才显示 | 待补（与第 1 项一起做） |
 | 3 | **CLI 没有扫描进度百分比/ETA**：只有一条"正在扫描"的状态行 | 大目录扫描时无法判断还要多久 | 待补（T9） |
-| 4 | **GUI 恒定提权**：`app.manifest` 是 `requireAdministrator` | 每次启动弹 UAC，而常规扫描并不需要管理员（只有 `mftscan`/`quota`/`health` 需要） | 待补（T11） |
+> **T11 已修**：GUI 从恒定提权改为按需提权（`asInvoker`）。常规使用不再弹 UAC；
+> 真正需要管理员的三个端点（MFT 直读 / SMART / 配额）由 `lib/serve.js` 在缺权限时返回明确提示。
+> 因此它从本表移除——**修好了就该移走**，否则这张表会变成一份没人相信的清单。
 
 ## 4. 怎么加一个新能力（照做就不会漂移）
 

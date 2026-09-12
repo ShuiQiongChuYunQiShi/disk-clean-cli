@@ -7,7 +7,10 @@ namespace DiskCleanUi;
 
 static class Program
 {
-    // App runs elevated (app.manifest requireAdministrator). The engine child inherits admin.
+    // T11: the app starts as asInvoker now (no UAC on every launch). The engine child
+    // inherits whatever the shell has, so the three features that genuinely need admin
+    // (MFT scan / SMART health / quota) are gated in lib/serve.js, which returns an
+    // explicit hint telling the user to restart as administrator.
 
     private static string EnginePath = string.Empty;
     private static string WebDir = string.Empty;

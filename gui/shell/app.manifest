@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <!-- Always elevate to administrator: MFT scan / clean / dedup / organize need it. -->
+  <!-- T11：按需提权，不再恒定提权。
+       原注释写的是"always elevate: MFT scan / clean / dedup / organize need it"——
+       这句话本身是错的：clean / dedup / organize / scan 都不需要管理员权限，
+       真正需要的只有 MFT 直读、SMART 健康检查、配额分析（都读底层卷信息）。
+       代价却是**每次启动都弹 UAC**。现在改成按需：默认普通权限启动，
+       那三个功能在缺权限时由服务层给出明确提示（lib/serve.js 的 ADMIN_HINT）。
+       需要时：右键 → 以管理员身份运行。 -->
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+        <requestedExecutionLevel level="asInvoker" uiAccess="false" />
       </requestedPrivileges>
     </security>
   </trustInfo>

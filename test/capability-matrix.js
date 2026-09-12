@@ -98,7 +98,6 @@ const DEBT_PATTERNS = [
   { key: 'GUI 报告历史端点', match: /GUI 没有报告历史端点/ },
   { key: '前端未调用 /api/report', match: /前端不调用\s*`\/api\/report`/ },
   { key: 'CLI 无进度 ETA', match: /CLI 没有扫描进度百分比/ },
-  { key: 'GUI 恒定提权', match: /GUI 恒定提权/ },
 ];
 for (const d of DEBT_PATTERNS) {
   assert(d.match.test(debt),
@@ -112,6 +111,21 @@ for (const d of DEBT_PATTERNS) {
 assert(declared.cli.has('report') && declared.mcp.has('disk_report'),
   '报告能力应当同时在 CLI 与 MCP 上可用');
 
+// ---------------------------------------------------------------- ⑤ T11：按需提权的两个必要条件
+// 把 GUI 从恒定提权改成按需提权，必须同时满足两件事，否则只是把"每次弹 UAC"换成
+// "那几个功能晦涩地失败"：
+//   ① manifest 是 asInvoker（不再要求恒定管理员）；
+//   ② 真正需要管理员的三个端点明确说出"需要管理员 + 怎么解决"。
+{
+  const manifest = fs.readFileSync(path.join(ROOT, 'gui', 'shell', 'app.manifest'), 'utf8');
+  assert(/level="asInvoker"/.test(manifest), 'T11：GUI 应以 asInvoker 启动（按需提权）');
+  assert(!/level="requireAdministrator"/.test(manifest), 'T11：不应再要求恒定管理员权限');
+  assert(/ADMIN_HINT/.test(serveSrc), 'serve 层应定义"需要管理员"的明确提示');
+  for (const ep of ['/api/health-check', '/api/mftscan', '/api/quota']) {
+    const re = new RegExp(ep.replace(/\//g, '\\/') + '[\\s\\S]{0,240}isAdmin\\(\\)');
+    assert(re.test(serveSrc), 'T11：' + ep + ' 缺少管理员权限检查（需权限时应给提示而不是晦涩失败）');
+  }
+}
 console.log('PASS capability-matrix: ' + rows.length + ' 条能力 × 三面双向核对通过（' +
   cliCases.size + ' 个 CLI 命令 / ' + mcpTools.size + ' 个 MCP 工具 / ' + guiEndpoints.size +
   ' 个 GUI 端点均已登记）；' + DEBT_PATTERNS.length + ' 处已知不一致仍在册');
