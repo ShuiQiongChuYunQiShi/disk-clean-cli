@@ -11,6 +11,7 @@
 //   4) 断言破坏性工具经由这条通道仍然默认 dry-run（安全语义不因换客户端而丢）
 //   5) 断言 stdout 只有协议行（DSH 的 SDK 也是逐行 JSON 解析）
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（本套件只给子进程注入过 HOME，自己也必须隔离）
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

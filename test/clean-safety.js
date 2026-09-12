@@ -3,6 +3,7 @@
 // 真实删除（真的往回收站丢文件）默认跳过，需显式 DSK_TEST_REAL_DELETE=1 才执行——
 // 评审指出旧版会在任何 `npm test` 里真删用户文件，测试不应有破坏性副作用。
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

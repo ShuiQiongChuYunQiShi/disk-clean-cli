@@ -1,5 +1,6 @@
 // test/engine-edge.js - edge cases: permission, symlink, long path, OneDrive placeholder
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

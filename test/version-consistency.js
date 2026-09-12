@@ -5,6 +5,7 @@
 //   1) 所有字面量派生源 == lib/version.js 的 VERSION
 //   2) bin/disk-clean.js 与 lib/serve.js 不得再写死版本号，必须引用 version.js
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const { verify, VERSION } = require('../lib/version.js');
 
 function assert(cond, msg) { if (!cond) throw new Error('FAIL: ' + msg); }

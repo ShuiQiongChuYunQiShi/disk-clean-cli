@@ -8,6 +8,7 @@
 // 本仓库是零运行时依赖，测试在 `npm ci` 之前跑，所以不能用 js-yaml。
 // 这里用缩进+关键字做结构化校验，专门覆盖"键用在了错误层级"这一类。
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const fs = require('fs');
 const path = require('path');
 

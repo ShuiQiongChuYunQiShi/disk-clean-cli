@@ -21,6 +21,7 @@
 //   F. 文档里引用的 scripts/* 路径都真实存在
 //   G. 死配置闸门：配置项要么接线、要么登记为未实现、且不得被当已有能力承诺
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const fs = require('fs');
 const path = require('path');
 
@@ -43,7 +44,9 @@ const DOC_FILES = [
 
 // ---------------------------------------------------------------- A. 套件注册完整性
 const testDir = path.join(ROOT, 'test');
-const testFiles = fs.readdirSync(testDir).filter((f) => f.endsWith('.js') && f !== 'all.js').sort();
+// `_` 开头的是测试辅助模块（_isolate / _home-guard），不是套件，不参与注册清单
+const testFiles = fs.readdirSync(testDir)
+  .filter((f) => f.endsWith('.js') && f !== 'all.js' && f.charAt(0) !== '_').sort();
 const allSrc = read('test/all.js');
 const suitesBlock = /const suites = \[([\s\S]*?)\]/.exec(allSrc);
 assert(suitesBlock, 'test/all.js 里找不到 suites 数组');

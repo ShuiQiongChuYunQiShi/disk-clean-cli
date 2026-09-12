@@ -11,6 +11,7 @@
 // 因此 CI 把 `npm ci` 放在测试之前。若未安装，这里会明确失败而不是跳过——
 // 静默 SKIP 会让这条闸门在真正需要它的时候悄悄变成绿的。
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const fs = require('fs');
 const os = require('os');
 const path = require('path');

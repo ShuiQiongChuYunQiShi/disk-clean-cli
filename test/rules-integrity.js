@@ -5,6 +5,7 @@
 // 只有 esbuild 打包时才给一条 duplicate-object-key 警告（很容易被当噪音忽略）。
 // 本测试从源码文本层面直接检查重复 key，并断言几个歧义扩展名的既定归属。
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const fs = require('fs');
 const path = require('path');
 const rules = require('../lib/rules.js');

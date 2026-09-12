@@ -10,6 +10,7 @@
 //   A4  整理目标只做前缀正则，`C:\整理区\..\boot\x` 可穿越进受保护目录
 //   A5  organize 自写带边界 bug 的前缀匹配 → C:\Users 命中 C:\UsersOther
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

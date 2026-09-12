@@ -1,5 +1,6 @@
 // test/engine-smoke.js - minimal smoke test for lib/engine.js (CI portable)
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const fs = require('fs');
 const os = require('os');

@@ -1,5 +1,6 @@
 // test/serve-integration.js - HTTP layer integration: auth, traversal, cancel, host check
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const fs = require('fs');
 const http = require('http');

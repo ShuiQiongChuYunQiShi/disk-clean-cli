@@ -11,6 +11,7 @@
 // 判定逻辑与文件系统分离，因此本套件不碰真实审批目录（DSK_APPROVAL_DIR 都不用设，
 // 因为纯函数根本不读文件），也不要求构建产物存在。
 'use strict';
+require('./_isolate.js');   // T1：状态目录隔离（必须早于任何 require lib）
 const path = require('path');
 const crypto = require('crypto');
 
