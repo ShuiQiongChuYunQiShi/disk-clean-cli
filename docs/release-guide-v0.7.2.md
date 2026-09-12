@@ -1,3 +1,13 @@
+> ## ✅ 已发布（2026-09-12）
+>
+> - GitHub Release：https://github.com/ShuiQiongChuYunQiShi/disk-clean-cli/releases/tag/v0.7.2
+>   非 draft、6 个资产、两个 exe 均通过**回下载哈希校验**
+> - 引擎 `b21bbea0…`（commit `48f1b13`，dirty=false）、安装器 `353122c3…`
+> - 审批渠道：**会话确认**（用户选择「只发 GitHub Release」）
+> - **npm 按决定跳过**（`dist-tags.latest` 仍为 0.7.1）
+> - CI @ `48f1b13`：success
+>
+> 下面的清单保留为本次实际执行过程的记录。
 # 发版指南 v0.7.2
 
 > 由 `node scripts/dev.js release-guide` 生成，**发布前必须人工补齐并勾选**。
